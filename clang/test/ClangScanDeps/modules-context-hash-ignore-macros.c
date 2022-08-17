@@ -38,6 +38,7 @@
 // CHECK-NEXT:       ]
 // CHECK-NEXT:       "command-line": [
 // CHECK-NOT:          "-DFOO"
+// CHECK-NOT:          "FOO"
 // CHECK:            ]
 // CHECK:            "input-file": "{{.*}}tu1.c"
 // CHECK-NEXT:     }
@@ -49,7 +50,8 @@
 // CHECK-NEXT:         }
 // CHECK-NEXT:       ]
 // CHECK-NEXT:       "command-line": [
-// CHECK:              "-DFOO"
+// CHECK:              "-D"
+// CHECK-NEXT:         "FOO"
 // CHECK:            ]
 // CHECK:            "input-file": "{{.*}}tu2.c"
 // CHECK-NEXT:     }
@@ -61,8 +63,9 @@
 // CHECK-NEXT:         }
 // CHECK-NEXT:       ]
 // CHECK-NEXT:       "command-line": [
-// CHECK:              "-DFOO"
 // CHECK:              "-fmodules-ignore-macro=FOO"
+// CHECK:              "-D"
+// CHECK-NEXT:         "FOO"
 // CHECK:            ]
 // CHECK:            "input-file": "{{.*}}tu3.c"
 

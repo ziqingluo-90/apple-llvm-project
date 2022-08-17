@@ -35,7 +35,7 @@
 // CHECK-NEXT:         }
 // CHECK-NEXT:       ]
 // CHECK-NEXT:       "command-line": [
-// CHECK:              "-MF"
+// CHECK:              "-dependency-file"
 // CHECK:            ]
 // CHECK:            "input-file": "{{.*}}tu1.c"
 // CHECK-NEXT:     }
@@ -48,6 +48,7 @@
 // CHECK-NEXT:       ]
 // CHECK-NEXT:       "command-line": [
 // CHECK-NOT:          "-MF"
+// CHECK-NOT:          "-dependency-file"
 // CHECK:            ]
 // CHECK:            "input-file": "{{.*}}tu2.c"
 

@@ -161,6 +161,8 @@ public:
     // Restore the value of DisableFree, which may be modified by Tooling.
     OriginalInvocation.getFrontendOpts().DisableFree = DisableFree;
 
+    Consumer.handleInvocation(OriginalInvocation);
+
     // Create a compiler instance to handle the actual work.
     CompilerInstance ScanInstance(std::move(PCHContainerOps));
     ScanInstance.setInvocation(std::move(Invocation));

@@ -319,13 +319,17 @@ public:
           {"clang-module-deps", toJSONSorted(I.ModuleDeps)},
       };
       if (I.DriverCommandLine.empty()) {
-        Array Commands;
-        for (const auto &Cmd : I.Commands) {
-          Commands.push_back(Object{
-            {"command-line", Cmd->getArguments()},
-          });
+        if (I.Commands.size() == 1) {
+          O["command-line"] = I.Commands[0]->getArguments();
+        } else {
+          Array Commands;
+          for (const auto &Cmd : I.Commands) {
+            Commands.push_back(Object{
+              {"command-line", Cmd->getArguments()},
+            });
+          }
+          O["commands"] = std::move(Commands);
         }
-        O["commands"] = std::move(Commands);
       } else {
         O["command-line"] = I.DriverCommandLine;
       }

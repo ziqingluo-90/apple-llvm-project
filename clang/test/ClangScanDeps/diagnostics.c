@@ -36,8 +36,8 @@
 // CHECK-NEXT:         }
 // CHECK-NEXT:       ],
 // CHECK-NEXT:       "command-line": [
-// CHECK:              "-fno-implicit-modules"
-// CHECK:              "-fno-implicit-module-maps"
+// CHECK-NOT:          "-fimplicit-modules"
+// CHECK-NOT:          "-fimplicit-module-maps"
 // CHECK:            ],
 // CHECK-NEXT:       "file-deps": [
 // CHECK-NEXT:         "[[PREFIX]]/tu.c"
