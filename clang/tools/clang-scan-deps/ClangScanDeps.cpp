@@ -177,6 +177,11 @@ llvm::cl::list<std::string> ModuleDepTargets(
     llvm::cl::desc("The names of dependency targets for the dependency file"),
     llvm::cl::cat(DependencyScannerCategory));
 
+llvm::cl::opt<bool>
+    LegacyDriverCommand("legacy-driver-command", llvm::cl::Optional, 
+      llvm::cl::desc("use a single driver command to build the tu (deprecated)"),
+      llvm::cl::cat(DependencyScannerCategory));
+
 enum ResourceDirRecipeKind {
   RDRK_ModifyCompilerPath,
   RDRK_InvokeCompiler,
@@ -251,7 +256,7 @@ class FullDeps {
 public:
   void mergeDeps(StringRef Input, FullDependenciesResult FDR,
                  size_t InputIndex) {
-    const FullDependencies &FD = FDR.FullDeps;
+    FullDependencies &FD = FDR.FullDeps;
 
     InputDeps ID;
     ID.FileName = std::string(Input);
@@ -269,7 +274,8 @@ public:
       Modules.insert(I, {{MD.ID, InputIndex}, std::move(MD)});
     }
 
-    ID.CommandLine = FD.DriverCommandLine;
+    ID.DriverCommandLine = std::move(FD.DriverCommandLine);
+    ID.Commands = std::move(FD.Commands);
     Inputs.push_back(std::move(ID));
   }
 
@@ -311,8 +317,18 @@ public:
           {"clang-context-hash", I.ContextHash},
           {"file-deps", I.FileDeps},
           {"clang-module-deps", toJSONSorted(I.ModuleDeps)},
-          {"command-line", I.CommandLine},
       };
+      if (I.DriverCommandLine.empty()) {
+        Array Commands;
+        for (const auto &Cmd : I.Commands) {
+          Commands.push_back(Object{
+            {"command-line", Cmd->getArguments()},
+          });
+        }
+        O["commands"] = std::move(Commands);
+      } else {
+        O["command-line"] = I.DriverCommandLine;
+      }
       TUs.push_back(std::move(O));
     }
 
@@ -348,7 +364,8 @@ private:
     std::string ContextHash;
     std::vector<std::string> FileDeps;
     std::vector<ModuleID> ModuleDeps;
-    std::vector<std::string> CommandLine;
+    std::vector<std::string> DriverCommandLine;
+    std::vector<std::unique_ptr<Command>> Commands;
   };
 
   std::mutex Lock;
@@ -554,8 +571,15 @@ int main(int argc, const char **argv) {
           if (handleMakeDependencyToolResult(Filename, MaybeFile, DependencyOS,
                                              Errs))
             HadErrors = true;
-        } else {
+        } else if (LegacyDriverCommand) {
           auto MaybeFullDeps = WorkerTools[I]->getFullDependenciesLegacyDriverCommand(
+              Input->CommandLine, CWD, AlreadySeenModules, LookupOutput,
+              MaybeModuleName);
+          if (handleFullDependencyToolResult(Filename, MaybeFullDeps, FD,
+                                             LocalIndex, DependencyOS, Errs))
+            HadErrors = true;
+        } else {
+          auto MaybeFullDeps = WorkerTools[I]->getFullDependencies(
               Input->CommandLine, CWD, AlreadySeenModules, LookupOutput,
               MaybeModuleName);
           if (handleFullDependencyToolResult(Filename, MaybeFullDeps, FD,
