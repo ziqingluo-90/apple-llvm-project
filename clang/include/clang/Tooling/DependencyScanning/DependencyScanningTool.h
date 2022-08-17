@@ -16,6 +16,7 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/Casting.h"
 #include <string>
 #include <vector>
 
@@ -26,6 +27,60 @@ namespace dependencies {
 /// A callback to lookup module outputs for "-fmodule-file=", "-o" etc.
 using LookupModuleOutputCallback =
     llvm::function_ref<std::string(const ModuleID &, ModuleOutputKind)>;
+
+/// An abstract command-line tool invocation that is part of building a TU.
+///
+/// \see FullDependencies::Commands.
+class Command {
+public:
+  virtual ~Command();
+
+  /// The name or path of the executable to run.
+  virtual std::string getExecutable() = 0;
+
+  /// The command-line arguments to pass.
+  virtual std::vector<std::string> getArguments() = 0;
+
+  enum CommandKind {
+    CK_CC1,
+    CK_Simple,
+  };
+
+  /// The command kind, used for casting.
+  CommandKind getKind() const { return Kind; }
+
+protected:
+  Command(CommandKind Kind) : Kind(Kind) {}
+  CommandKind Kind;
+};
+
+/// An invocation of 'clang -cc1', represented by a \c CompilerInvocation.
+class CC1Command : public Command {
+public:
+  CC1Command(CompilerInvocation CI);
+  CompilerInvocation BuildInvocation;
+
+  std::string getExecutable() override;
+  std::vector<std::string> getArguments() override;
+
+  static bool classof(const Command *C) {
+    return C->getKind() == CK_CC1;
+  }
+};
+
+class SimpleCommand : public Command {
+public:
+  SimpleCommand(std::string Executable, std::vector<std::string> Arguments) : Command(CK_Simple), Executable(std::move(Executable)), Arguments(std::move(Arguments)) {}
+  std::string Executable;
+  std::vector<std::string> Arguments;
+
+  std::string getExecutable() override { return Executable; }
+  std::vector<std::string> getArguments() override { return Arguments; }
+
+  static bool classof(const Command *C) {
+    return C->getKind() == CK_Simple;
+  }
+};
 
 /// The full dependencies and module graph for a specific input.
 struct FullDependencies {
@@ -49,8 +104,16 @@ struct FullDependencies {
   /// determined that the differences are benign for this compilation.
   std::vector<ModuleID> ClangModuleDeps;
 
-  /// The command line of the TU (excluding the compiler executable).
-  std::vector<std::string> CommandLine;
+  /// The sequence of commands required to build the translation unit. Commands
+  /// should be executed in order.
+  ///
+  /// FIXME: If we add support for multi-arch builds in clang-scan-deps, we
+  /// should make the dependencies between commands explicit to enable parallel
+  /// builds of each architecture.
+  std::vector<std::unique_ptr<Command>> Commands;
+
+  /// Deprecated.
+  std::vector<std::string> DriverCommandLine;
 };
 
 struct FullDependenciesResult {
@@ -99,6 +162,12 @@ public:
                       LookupModuleOutputCallback LookupModuleOutput,
                       llvm::Optional<StringRef> ModuleName = None);
 
+  llvm::Expected<FullDependenciesResult>
+  getFullDependenciesLegacyDriverCommand(const std::vector<std::string> &CommandLine,
+                      StringRef CWD, const llvm::StringSet<> &AlreadySeen,
+                      LookupModuleOutputCallback LookupModuleOutput,
+                      llvm::Optional<StringRef> ModuleName = None);
+
 private:
   DependencyScanningWorker Worker;
 };
@@ -108,6 +177,12 @@ public:
   FullDependencyConsumer(const llvm::StringSet<> &AlreadySeen,
                          LookupModuleOutputCallback LookupModuleOutput)
       : AlreadySeen(AlreadySeen), LookupModuleOutput(LookupModuleOutput) {}
+
+  void handleSimpleDriverJob(std::string Executable, std::vector<std::string> Args) override {
+    Commands.push_back(std::make_unique<SimpleCommand>(std::move(Executable), std::move(Args)));
+  }
+  
+  void handleInvocation(CompilerInvocation CI) override;
 
   void handleDependencyOutputOpts(const DependencyOutputOptions &) override {}
 
@@ -132,14 +207,17 @@ public:
     return LookupModuleOutput(ID, Kind);
   }
 
-  FullDependenciesResult getFullDependencies(
+  FullDependenciesResult getFullDependenciesLegacyDriverCommand(
       const std::vector<std::string> &OriginalCommandLine) const;
+
+  FullDependenciesResult takeFullDependencies();
 
 private:
   std::vector<std::string> Dependencies;
   std::vector<PrebuiltModuleDep> PrebuiltModuleDeps;
   llvm::MapVector<std::string, ModuleDeps, llvm::StringMap<unsigned>>
       ClangModuleDeps;
+  std::vector<std::unique_ptr<Command>> Commands;
   std::string ContextHash;
   std::vector<std::string> OutputPaths;
   const llvm::StringSet<> &AlreadySeen;

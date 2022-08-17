@@ -110,17 +110,7 @@ ModuleDepCollector::makeInvocationForModuleBuildWithoutOutputs(
   CI.getLangOpts()->ModuleName = Deps.ID.ModuleName;
   CI.getFrontendOpts().IsSystemModule = Deps.IsSystem;
 
-  // Disable implicit modules and canonicalize options that are only used by
-  // implicit modules.
-  CI.getLangOpts()->ImplicitModules = false;
-  CI.getHeaderSearchOpts().ImplicitModuleMaps = false;
-  CI.getHeaderSearchOpts().ModuleCachePath.clear();
-  CI.getHeaderSearchOpts().ModulesValidateOncePerBuildSession = false;
-  CI.getHeaderSearchOpts().BuildSessionTimestamp = 0;
-  // The specific values we canonicalize to for pruning don't affect behaviour,
-  /// so use the default values so they will be dropped from the command-line.
-  CI.getHeaderSearchOpts().ModuleCachePruneInterval = 7 * 24 * 60 * 60;
-  CI.getHeaderSearchOpts().ModuleCachePruneAfter = 31 * 24 * 60 * 60;
+  clearImplicitModuleBuildOptions(CI);
 
   // Inputs
   InputKind ModuleMapInputKind(CI.getFrontendOpts().DashX.getLanguage(),
@@ -157,21 +147,6 @@ ModuleDepCollector::makeInvocationForModuleBuildWithoutOutputs(
   CI.getHeaderSearchOpts().ModulesStrictContextHash = true;
 
   return CI;
-}
-
-static std::vector<std::string>
-serializeCompilerInvocation(const CompilerInvocation &CI) {
-  // Set up string allocator.
-  llvm::BumpPtrAllocator Alloc;
-  llvm::StringSaver Strings(Alloc);
-  auto SA = [&Strings](const Twine &Arg) { return Strings.save(Arg).data(); };
-
-  // Synthesize full command line from the CompilerInvocation, including "-cc1".
-  SmallVector<const char *, 32> Args{"-cc1"};
-  CI.generateCC1CommandLine(Args, SA);
-
-  // Convert arguments to the return type.
-  return std::vector<std::string>{Args.begin(), Args.end()};
 }
 
 std::vector<std::string> ModuleDeps::getCanonicalCommandLine() const {

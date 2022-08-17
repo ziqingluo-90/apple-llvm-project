@@ -269,7 +269,7 @@ public:
       Modules.insert(I, {{MD.ID, InputIndex}, std::move(MD)});
     }
 
-    ID.CommandLine = FD.CommandLine;
+    ID.CommandLine = FD.DriverCommandLine;
     Inputs.push_back(std::move(ID));
   }
 
@@ -555,7 +555,7 @@ int main(int argc, const char **argv) {
                                              Errs))
             HadErrors = true;
         } else {
-          auto MaybeFullDeps = WorkerTools[I]->getFullDependencies(
+          auto MaybeFullDeps = WorkerTools[I]->getFullDependenciesLegacyDriverCommand(
               Input->CommandLine, CWD, AlreadySeenModules, LookupOutput,
               MaybeModuleName);
           if (handleFullDependencyToolResult(Filename, MaybeFullDeps, FD,

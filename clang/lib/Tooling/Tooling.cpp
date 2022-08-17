@@ -339,7 +339,7 @@ ToolInvocation::~ToolInvocation() {
 }
 
 bool ToolInvocation::run() {
-  std::vector<const char*> Argv;
+  llvm::opt::ArgStringList Argv;
   for (const std::string &Str : CommandLine)
     Argv.push_back(Str.c_str());
   const char *const BinaryName = Argv[0];
@@ -362,6 +362,15 @@ bool ToolInvocation::run() {
   SourceManager SrcMgr(*Diagnostics, *Files);
   Diagnostics->setSourceManager(&SrcMgr);
 
+  // We already have a cc1, just create an invocation.
+  if (CommandLine.size() >= 2 && CommandLine[1] == "-cc1") {
+    // FIXME: can we use ArrayRef instead to avoid modifying?
+    Argv.erase(Argv.begin());
+    std::unique_ptr<CompilerInvocation> Invocation(
+      newInvocation(&*Diagnostics, Argv, BinaryName));
+    return Action->runInvocation(std::move(Invocation), Files, std::move(PCHContainerOps), DiagConsumer);
+  }
+
   const std::unique_ptr<driver::Driver> Driver(
       newDriver(&*Diagnostics, BinaryName, &Files->getVirtualFileSystem()));
   // The "input file not found" diagnostics from the driver are useful.
@@ -378,6 +387,7 @@ bool ToolInvocation::run() {
       &*Diagnostics, Compilation.get());
   if (!CC1Args)
     return false;
+  // FIXME: we need to check for errors here, unlike if we had a driver command.
   std::unique_ptr<CompilerInvocation> Invocation(
       newInvocation(&*Diagnostics, *CC1Args, BinaryName));
   return runInvocation(BinaryName, Compilation.get(), std::move(Invocation),
