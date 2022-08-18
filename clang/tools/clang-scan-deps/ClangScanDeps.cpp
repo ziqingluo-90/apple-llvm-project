@@ -178,7 +178,7 @@ llvm::cl::list<std::string> ModuleDepTargets(
     llvm::cl::cat(DependencyScannerCategory));
 
 llvm::cl::opt<bool>
-    LegacyDriverCommand("legacy-driver-command", llvm::cl::Optional, 
+    DeprecatedDriverCommand("deprecated-driver-command", llvm::cl::Optional, 
       llvm::cl::desc("use a single driver command to build the tu (deprecated)"),
       llvm::cl::cat(DependencyScannerCategory));
 
@@ -576,7 +576,7 @@ int main(int argc, const char **argv) {
           if (handleMakeDependencyToolResult(Filename, MaybeFile, DependencyOS,
                                              Errs))
             HadErrors = true;
-        } else if (LegacyDriverCommand) {
+        } else if (DeprecatedDriverCommand) {
           auto MaybeFullDeps = WorkerTools[I]->getFullDependenciesLegacyDriverCommand(
               Input->CommandLine, CWD, AlreadySeenModules, LookupOutput,
               MaybeModuleName);
