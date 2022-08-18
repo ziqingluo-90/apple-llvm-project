@@ -325,6 +325,7 @@ public:
           Array Commands;
           for (const auto &Cmd : I.Commands) {
             Commands.push_back(Object{
+              {"executable", Cmd->getExecutable()},
               {"command-line", Cmd->getArguments()},
             });
           }

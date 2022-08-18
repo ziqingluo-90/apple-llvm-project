@@ -154,6 +154,17 @@ void FullDependencyConsumer::handleInvocation(CompilerInvocation CI) {
   Commands.push_back(std::make_unique<CC1Command>(std::move(CI)));
 }
 
+static bool needsModules(FrontendInputFile FIF) {
+  switch (FIF.getKind().getLanguage()) {
+  case Language::Unknown:
+  case Language::Asm:
+  case Language::LLVM_IR:
+    return false;
+  default:
+    return true;
+  }
+}
+
 FullDependenciesResult FullDependencyConsumer::takeFullDependencies() {
   FullDependenciesResult FDR;
   FullDependencies &FD = FDR.FullDeps;
@@ -175,16 +186,16 @@ FullDependenciesResult FullDependencyConsumer::takeFullDependencies() {
   }
 
   for (auto &Command : FD.Commands) {
-    // FIXME: should this only apply to certain commands?
     if (auto *CC1 = dyn_cast<CC1Command>(Command.get())) {
       auto &FrontendOpts = CC1->BuildInvocation.getFrontendOpts();
-      for (const auto &PMD : FD.PrebuiltModuleDeps)
-        FrontendOpts.ModuleFiles.push_back(PMD.PCMFile);
-      for (const auto &ID : FD.ClangModuleDeps)
-        FrontendOpts.ModuleFiles.push_back(LookupModuleOutput(ID, ModuleOutputKind::ModuleFile));
+      if (llvm::any_of(FrontendOpts.Inputs, needsModules)) {
+        for (const auto &PMD : FD.PrebuiltModuleDeps)
+          FrontendOpts.ModuleFiles.push_back(PMD.PCMFile);
+        for (const auto &ID : FD.ClangModuleDeps)
+          FrontendOpts.ModuleFiles.push_back(LookupModuleOutput(ID, ModuleOutputKind::ModuleFile));
+      }
     }
   }
-  
 
   return FDR;
 }
