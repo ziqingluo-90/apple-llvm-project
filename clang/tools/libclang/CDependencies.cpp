@@ -88,6 +88,18 @@ void clang_experimental_FileDependencies_dispose(CXFileDependencies *ID) {
   delete ID;
 }
 
+void clang_experimental_FileDependencies_dispose_v4(CXFileDependencies_v4 *FD) {
+  for (size_t I = 0; I < FD->NumCommands; ++I) {
+    clang_disposeString(FD->Commands[I].ContextHash);
+    clang_disposeStringSet(FD->Commands[I].FileDeps);
+    clang_disposeStringSet(FD->Commands[I].ModuleDeps);
+    clang_disposeString(FD->Commands[I].Executable);
+    clang_disposeStringSet(FD->Commands[I].BuildArguments);
+  }
+  delete[] FD->Commands;
+  delete FD;
+}
+
 CXDependencyScannerWorker clang_experimental_DependencyScannerWorker_create_v0(
     CXDependencyScannerService Service) {
   return wrap(new DependencyScanningWorker(
@@ -99,20 +111,14 @@ void clang_experimental_DependencyScannerWorker_dispose_v0(
   delete unwrap(Worker);
 }
 
-static CXFileDependencies *
-getFlatDependencies(DependencyScanningWorker *Worker,
-                    ArrayRef<std::string> Compilation,
-                    const char *WorkingDirectory, CXString *error,
-                    llvm::Optional<StringRef> ModuleName = None) {
-  // TODO: Implement flat deps.
-  return nullptr;
-}
+using HandleFullDepsCallback = llvm::function_ref<void(FullDependencies)>;
 
-static CXFileDependencies *getFullDependencies(
+static bool getFullDependencies(
     DependencyScanningWorker *Worker, ArrayRef<std::string> Compilation,
     const char *WorkingDirectory, CXModuleDiscoveredCallback *MDC,
     void *Context, CXString *error, LookupModuleOutputCallback LookupOutput,
-    llvm::Optional<StringRef> ModuleName = None) {
+    bool DeprecatedDriverCommand, llvm::Optional<StringRef> ModuleName,
+    HandleFullDepsCallback HandleFullDeps) {
   llvm::StringSet<> AlreadySeen;
   FullDependencyConsumer Consumer(AlreadySeen, LookupOutput);
   llvm::Error Result = Worker->computeDependencies(
@@ -120,10 +126,15 @@ static CXFileDependencies *getFullDependencies(
 
   if (Result) {
     *error = cxstring::createDup(llvm::toString(std::move(Result)));
-    return nullptr;
+    return false;
   }
 
-  auto FDR = Consumer.getFullDependencies(Compilation);
+  FullDependenciesResult FDR;
+  if (DeprecatedDriverCommand)
+    FDR = Consumer.getFullDependenciesLegacyDriverCommand(Compilation);
+  else
+    FDR = Consumer.takeFullDependencies();
+
   if (!FDR.DiscoveredModules.empty()) {
     CXModuleDependencySet *MDS = new CXModuleDependencySet;
     MDS->Count = FDR.DiscoveredModules.size();
@@ -144,38 +155,45 @@ static CXFileDependencies *getFullDependencies(
     MDC(Context, MDS);
   }
 
-  const FullDependencies &FD = FDR.FullDeps;
-  CXFileDependencies *FDeps = new CXFileDependencies;
-  FDeps->ContextHash = cxstring::createDup(FD.ID.ContextHash);
-  FDeps->FileDeps = cxstring::createSet(FD.FileDeps);
-  std::vector<std::string> Modules;
-  for (const ModuleID &MID : FD.ClangModuleDeps)
-    Modules.push_back(MID.ModuleName + ":" + MID.ContextHash);
-  FDeps->ModuleDeps = cxstring::createSet(Modules);
-  FDeps->BuildArguments = cxstring::createSet(FD.CommandLine);
-  return FDeps;
+  HandleFullDeps(std::move(FDR.FullDeps));
+  return true;
 }
 
-static CXFileDependencies *
+static bool
 getFileDependencies(CXDependencyScannerWorker W, int argc,
                     const char *const *argv, const char *WorkingDirectory,
                     CXModuleDiscoveredCallback *MDC, void *Context,
                     CXString *error, LookupModuleOutputCallback LookupOutput,
-                    llvm::Optional<StringRef> ModuleName = None) {
-  if (!W || argc < 2)
-    return nullptr;
+                    bool DeprecatedDriverCommand,
+                    llvm::Optional<StringRef> ModuleName,
+                    HandleFullDepsCallback HandleFullDeps) {
+  if (!W) {
+    if (error)
+      *error = cxstring::createDup("missing CXDependencyScannerWorker");
+    return false;
+  }
+  if (argc < 2 || !argv) {
+    if (error)
+      *error = cxstring::createDup("invalid argc or argv");
+    return false;
+  }
   if (error)
     *error = cxstring::createEmpty();
 
   DependencyScanningWorker *Worker = unwrap(W);
 
+  if (Worker->getFormat() != ScanningOutputFormat::Full) {
+    if (error)
+      *error = cxstring::createDup("unsupported CXDependencyMode for this API");
+    return false;
+  }
+
   std::vector<std::string> Compilation{argv, argv + argc};
 
-  if (Worker->getFormat() == ScanningOutputFormat::Full)
-    return getFullDependencies(Worker, Compilation, WorkingDirectory, MDC,
-                               Context, error, LookupOutput, ModuleName);
-  return getFlatDependencies(Worker, Compilation, WorkingDirectory, error,
-                             ModuleName);
+  return getFullDependencies(Worker, Compilation, WorkingDirectory, MDC,
+                             Context, error, LookupOutput,
+                             DeprecatedDriverCommand, ModuleName,
+                             HandleFullDeps);
 }
 
 namespace {
@@ -202,9 +220,57 @@ clang_experimental_DependencyScannerWorker_getFileDependencies_v3(
   auto LookupOutputs = [&](const ModuleID &ID, ModuleOutputKind MOK) {
     return OL.lookupModuleOutput(ID, MOK);
   };
-  return getFileDependencies(
+  CXFileDependencies *FDeps = nullptr;
+  bool Success = getFileDependencies(
       W, argc, argv, WorkingDirectory, MDC, MDCContext, error, LookupOutputs,
-      ModuleName ? Optional<StringRef>(ModuleName) : None);
+      /*DeprecatedDriverCommand=*/true,
+      ModuleName ? Optional<StringRef>(ModuleName) : None, [&](FullDependencies FD) {
+    assert(!FD.DriverCommandLine.empty());
+    std::vector<std::string> Modules;
+    for (const ModuleID &MID : FD.ClangModuleDeps)
+      Modules.push_back(MID.ModuleName + ":" + MID.ContextHash);
+    FDeps = new CXFileDependencies;
+    FDeps->ContextHash = cxstring::createDup(FD.ID.ContextHash);
+    FDeps->FileDeps = cxstring::createSet(FD.FileDeps);
+    FDeps->ModuleDeps = cxstring::createSet(Modules);
+    FDeps->BuildArguments = cxstring::createSet(FD.DriverCommandLine);
+  });
+  assert(!Success || FDeps);
+  return FDeps;
+}
+
+CXFileDependencies_v4 *
+clang_experimental_DependencyScannerWorker_getFileDependencies_v4(
+    CXDependencyScannerWorker W, int argc, const char *const *argv,
+    const char *ModuleName, const char *WorkingDirectory, void *MDCContext,
+    CXModuleDiscoveredCallback *MDC, void *MLOContext,
+    CXModuleLookupOutputCallback *MLO, unsigned, CXString *error) {
+  OutputLookup OL(MLOContext, MLO);
+  auto LookupOutputs = [&](const ModuleID &ID, ModuleOutputKind MOK) {
+    return OL.lookupModuleOutput(ID, MOK);
+  };
+  CXFileDependencies_v4 *Result = nullptr;
+  bool Success = getFileDependencies(
+      W, argc, argv, WorkingDirectory, MDC, MDCContext, error, LookupOutputs,
+      /*DeprecatedDriverCommand=*/false,
+      ModuleName ? Optional<StringRef>(ModuleName) : None, [&](FullDependencies FD) {
+    assert(FD.DriverCommandLine.empty());
+    std::vector<std::string> Modules;
+    for (const ModuleID &MID : FD.ClangModuleDeps)
+      Modules.push_back(MID.ModuleName + ":" + MID.ContextHash);
+    auto *Commands = new CXTranslationUnitCommand[FD.Commands.size()];
+    for (size_t I = 0, E = FD.Commands.size(); I < E; ++I) {
+      Commands[I].ContextHash = cxstring::createDup(FD.ID.ContextHash);
+      Commands[I].FileDeps = cxstring::createSet(FD.FileDeps);
+      Commands[I].ModuleDeps = cxstring::createSet(Modules);
+      Commands[I].Executable = cxstring::createDup(FD.Commands[I]->getExecutable());
+      Commands[I].BuildArguments = cxstring::createSet(FD.Commands[I]->getArguments());
+      bzero(&Commands[I].Reserved, sizeof(uintptr_t) * 4);
+    }
+    Result = new CXFileDependencies_v4{FD.Commands.size(), Commands};
+  });
+  assert(!Success || Result);
+  return Result;
 }
 
 static std::string lookupModuleOutput(const ModuleID &ID, ModuleOutputKind MOK,

@@ -99,6 +99,28 @@ typedef struct {
 } CXFileDependencies;
 
 /**
+ * An individual command-line invocation that is part of an overall compilation
+ * \c CXFileDependencies_v4.
+ *
+ * See \c CXModuleDependency for the meaning of these fields, with the addition
+ * that they represent only the direct dependencies for \c CXDependencyMode_Full
+ * mode.
+ */
+typedef struct {
+  CXString ContextHash;
+  CXStringSet *FileDeps;
+  CXStringSet *ModuleDeps;
+  CXString Executable;
+  CXStringSet *BuildArguments;
+  uintptr_t Reserved[4];
+} CXTranslationUnitCommand;
+
+typedef struct {
+  size_t NumCommands;
+  CXTranslationUnitCommand *Commands;
+} CXFileDependencies_v4;
+
+/**
  * An output file kind needed by module dependencies.
  */
 typedef enum {
@@ -113,6 +135,9 @@ clang_experimental_ModuleDependencySet_dispose(CXModuleDependencySet *MD);
 
 CINDEX_LINKAGE void
 clang_experimental_FileDependencies_dispose(CXFileDependencies *ID);
+
+CINDEX_LINKAGE void
+clang_experimental_FileDependencies_dispose_v4(CXFileDependencies_v4 *Deps);
 
 /**
  * Object encapsulating instance of a dependency scanner service.
@@ -225,6 +250,16 @@ typedef size_t CXModuleLookupOutputCallback(void *Context,
                                             char *Output, size_t MaxLen);
 
 /**
+ * See \c clang_experimental_DependencyScannerWorker_getFileDependencies_v4.
+ */
+CINDEX_LINKAGE CXFileDependencies *
+clang_experimental_DependencyScannerWorker_getFileDependencies_v3(
+    CXDependencyScannerWorker Worker, int argc, const char *const *argv,
+    const char *ModuleName, const char *WorkingDirectory, void *MDCContext,
+    CXModuleDiscoveredCallback *MDC, void *MLOContext,
+    CXModuleLookupOutputCallback *MLO, unsigned Options, CXString *error);
+
+/**
  * Returns the list of file dependencies for a particular compiler invocation.
  *
  * \param argc the number of compiler invocation arguments (including argv[0]).
@@ -256,8 +291,8 @@ typedef size_t CXModuleLookupOutputCallback(void *Context,
  *          CXFileDependencies must be freed by calling
  *          \c clang_experimental_FileDependencies_dispose.
  */
-CINDEX_LINKAGE CXFileDependencies *
-clang_experimental_DependencyScannerWorker_getFileDependencies_v3(
+CINDEX_LINKAGE CXFileDependencies_v4 *
+clang_experimental_DependencyScannerWorker_getFileDependencies_v4(
     CXDependencyScannerWorker Worker, int argc, const char *const *argv,
     const char *ModuleName, const char *WorkingDirectory, void *MDCContext,
     CXModuleDiscoveredCallback *MDC, void *MLOContext,

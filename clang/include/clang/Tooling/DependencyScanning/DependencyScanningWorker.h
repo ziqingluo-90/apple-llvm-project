@@ -68,6 +68,8 @@ public:
   virtual void handleHasIncludeCheck(Preprocessor &PP, bool Result) = 0;
 
 protected:
+  void handleSimpleDriverJob(std::string Executable, std::vector<std::string> Args) override {}
+  void handleInvocation(clang::CompilerInvocation CI) override {}
   void handleDependencyOutputOpts(const DependencyOutputOptions &Opts) override {
     llvm::report_fatal_error("unexpected callback for include-tree");
   }

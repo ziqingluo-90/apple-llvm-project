@@ -11,7 +11,7 @@
 // CHECK:      tree {{.*}} for '[[PREFIX]]/t1.c'
 // CHECK-NEXT: tree {{.*}} for '[[PREFIX]]/t2.c'
 
-// RUN: clang-scan-deps -compilation-database %t/cdb.json -cas-path %t/cas -format experimental-tree-full -mode preprocess | FileCheck %s -DPREFIX=%/t --check-prefix=FULL-TREE
+// RUN: clang-scan-deps -compilation-database %t/cdb.json -cas-path %t/cas -format experimental-tree-full -deprecated-driver-command -mode preprocess | FileCheck %s -DPREFIX=%/t --check-prefix=FULL-TREE
 // FULL-TREE:      {
 // FULL-TREE-NEXT:   "modules": [],
 // FULL-TREE-NEXT:   "translation-units": [

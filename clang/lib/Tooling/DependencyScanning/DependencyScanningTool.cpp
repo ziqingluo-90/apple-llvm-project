@@ -120,6 +120,8 @@ namespace {
 /// Returns a CAS tree containing the dependencies.
 class MakeDependencyTree : public DependencyConsumer {
 public:
+  void handleSimpleDriverJob(std::string Executable, std::vector<std::string> Args) override {}
+  void handleInvocation(clang::CompilerInvocation CI) override {}
   void handleFileDependency(StringRef File) override {
     // FIXME: Probably we want to delete this class, since we're getting
     // dependencies more accurately (including directories) by intercepting
