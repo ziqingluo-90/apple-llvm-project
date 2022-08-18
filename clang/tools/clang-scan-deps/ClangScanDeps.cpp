@@ -193,6 +193,11 @@ llvm::cl::list<std::string> ModuleDepTargets(
     llvm::cl::desc("The names of dependency targets for the dependency file"),
     llvm::cl::cat(DependencyScannerCategory));
 
+llvm::cl::opt<bool>
+    DeprecatedDriverCommand("deprecated-driver-command", llvm::cl::Optional, 
+      llvm::cl::desc("use a single driver command to build the tu (deprecated)"),
+      llvm::cl::cat(DependencyScannerCategory));
+
 enum ResourceDirRecipeKind {
   RDRK_ModifyCompilerPath,
   RDRK_InvokeCompiler,
@@ -496,7 +501,7 @@ class FullDeps {
 public:
   void mergeDeps(StringRef Input, FullDependenciesResult FDR,
                  size_t InputIndex) {
-    const FullDependencies &FD = FDR.FullDeps;
+    FullDependencies &FD = FDR.FullDeps;
 
     InputDeps ID;
     ID.FileName = std::string(Input);
@@ -515,7 +520,8 @@ public:
       Modules.insert(I, {{MD.ID, InputIndex}, std::move(MD)});
     }
 
-    ID.CommandLine = FD.CommandLine;
+    ID.DriverCommandLine = std::move(FD.DriverCommandLine);
+    ID.Commands = std::move(FD.Commands);
     Inputs.push_back(std::move(ID));
   }
 
@@ -557,10 +563,25 @@ public:
           {"clang-context-hash", I.ContextHash},
           {"file-deps", I.FileDeps},
           {"clang-module-deps", toJSONSorted(I.ModuleDeps)},
-          {"command-line", I.CommandLine},
       };
       if (I.CASFileSystemRootID)
         O.try_emplace("casfs-root-id", I.CASFileSystemRootID->toString());
+      if (I.DriverCommandLine.empty()) {
+        if (I.Commands.size() == 1) {
+          O["command-line"] = I.Commands[0]->getArguments();
+        } else {
+          Array Commands;
+          for (const auto &Cmd : I.Commands) {
+            Commands.push_back(Object{
+              {"executable", Cmd->getExecutable()},
+              {"command-line", Cmd->getArguments()},
+            });
+          }
+          O["commands"] = std::move(Commands);
+        }
+      } else {
+        O["command-line"] = I.DriverCommandLine;
+      }
       TUs.push_back(std::move(O));
     }
 
@@ -596,7 +617,8 @@ private:
     std::string ContextHash;
     std::vector<std::string> FileDeps;
     std::vector<ModuleID> ModuleDeps;
-    std::vector<std::string> CommandLine;
+    std::vector<std::string> DriverCommandLine;
+    std::vector<std::unique_ptr<Command>> Commands;
     llvm::Optional<llvm::cas::CASID> CASFileSystemRootID;
   };
 
@@ -875,6 +897,13 @@ int main(int argc, const char **argv) {
           std::unique_lock<std::mutex> LockGuard(Lock);
           TreeResults.emplace_back(LocalIndex, std::move(Filename),
                                    std::move(MaybeTree));
+        } else if (DeprecatedDriverCommand) {
+          auto MaybeFullDeps = WorkerTools[I]->getFullDependenciesLegacyDriverCommand(
+              Input->CommandLine, CWD, AlreadySeenModules, LookupOutput,
+              MaybeModuleName);
+          if (handleFullDependencyToolResult(Filename, MaybeFullDeps, FD,
+                                             LocalIndex, DependencyOS, Errs))
+            HadErrors = true;
         } else {
           auto MaybeFullDeps = WorkerTools[I]->getFullDependencies(
               Input->CommandLine, CWD, AlreadySeenModules, LookupOutput,

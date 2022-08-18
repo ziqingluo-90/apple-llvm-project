@@ -96,11 +96,11 @@
 // CHECK-NEXT:         }
 // CHECK-NEXT:       ],
 // CHECK-NEXT:       "command-line": [
-// CHECK:              "-fno-implicit-modules"
-// CHECK-NEXT:         "-fno-implicit-module-maps"
-// CHECK-ABS-NEXT:     "-fmodule-file=[[PREFIX]]/module-cache{{(_clangcl)?}}/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
-// CHECK-CUSTOM-NEXT:  "-fmodule-file=[[PREFIX]]/custom/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
-// CHECK-NEXT:       ],
+// CHECK-NOT:          "-fimplicit-modules"
+// CHECK-NOT:          "-fimplicit-module-maps"
+// CHECK-ABS:          "-fmodule-file=[[PREFIX]]/module-cache{{(_clangcl)?}}/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
+// CHECK-CUSTOM:       "-fmodule-file=[[PREFIX]]/custom/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
+// CHECK:            ],
 // CHECK-NEXT:       "file-deps": [
 // CHECK-NEXT:         "[[PREFIX]]/modules_cdb_input.cpp"
 // CHECK-NEXT:       ],
@@ -115,11 +115,11 @@
 // CHECK-NEXT:         }
 // CHECK-NEXT:       ],
 // CHECK-NEXT:       "command-line": [
-// CHECK:              "-fno-implicit-modules"
-// CHECK-NEXT:         "-fno-implicit-module-maps"
-// CHECK-ABS-NEXT:     "-fmodule-file=[[PREFIX]]/module-cache{{(_clangcl)?}}/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
-// CHECK-CUSTOM-NEXT:  "-fmodule-file=[[PREFIX]]/custom/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
-// CHECK-NEXT:       ],
+// CHECK-NOT:          "-fimplicit-modules"
+// CHECK-NOT:          "-fimplicit-module-maps"
+// CHECK-ABS:          "-fmodule-file=[[PREFIX]]/module-cache{{(_clangcl)?}}/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
+// CHECK-CUSTOM:       "-fmodule-file=[[PREFIX]]/custom/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
+// CHECK:            ],
 // CHECK-NEXT:       "file-deps": [
 // CHECK-NEXT:         "[[PREFIX]]/modules_cdb_input.cpp"
 // CHECK-NEXT:       ],
@@ -134,11 +134,11 @@
 // CHECK-NEXT:         }
 // CHECK-NEXT:       ],
 // CHECK-NEXT:       "command-line": [
-// CHECK:              "-fno-implicit-modules"
-// CHECK-NEXT:         "-fno-implicit-module-maps"
-// CHECK-ABS-NEXT:     "-fmodule-file=[[PREFIX]]/module-cache{{(_clangcl)?}}/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
-// CHECK-CUSTOM-NEXT:  "-fmodule-file=[[PREFIX]]/custom/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
-// CHECK-NEXT:       ],
+// CHECK-NOT:          "-fimplicit-modules"
+// CHECK-NOT:          "-fimplicit-module-maps"
+// CHECK-ABS:          "-fmodule-file=[[PREFIX]]/module-cache{{(_clangcl)?}}/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
+// CHECK-CUSTOM:       "-fmodule-file=[[PREFIX]]/custom/[[HASH_H1]]/header1-{{[A-Z0-9]+}}.pcm"
+// CHECK:            ],
 // CHECK-NEXT:       "file-deps": [
 // CHECK-NEXT:         "[[PREFIX]]/modules_cdb_input.cpp"
 // CHECK-NEXT:       ],
@@ -153,11 +153,11 @@
 // CHECK-NEXT:         }
 // CHECK-NEXT:       ],
 // CHECK-NEXT:       "command-line": [
-// CHECK:              "-fno-implicit-modules"
-// CHECK-NEXT:         "-fno-implicit-module-maps"
-// CHECK-ABS-NEXT:     "-fmodule-file=[[PREFIX]]/module-cache{{(_clangcl)?}}/[[HASH_H1_DINCLUDE]]/header1-{{[A-Z0-9]+}}.pcm"
-// CHECK-CUSTOM-NEXT:  "-fmodule-file=[[PREFIX]]/custom/[[HASH_H1_DINCLUDE]]/header1-{{[A-Z0-9]+}}.pcm"
-// CHECK-NEXT:       ],
+// CHECK-NOT:          "-fimplicit-modules"
+// CHECK-NOT:          "-fimplicit-module-maps"
+// CHECK-ABS:          "-fmodule-file=[[PREFIX]]/module-cache{{(_clangcl)?}}/[[HASH_H1_DINCLUDE]]/header1-{{[A-Z0-9]+}}.pcm"
+// CHECK-CUSTOM:       "-fmodule-file=[[PREFIX]]/custom/[[HASH_H1_DINCLUDE]]/header1-{{[A-Z0-9]+}}.pcm"
+// CHECK:            ],
 // CHECK-NEXT:       "file-deps": [
 // CHECK-NEXT:         "[[PREFIX]]/modules_cdb_input2.cpp"
 // CHECK-NEXT:       ],

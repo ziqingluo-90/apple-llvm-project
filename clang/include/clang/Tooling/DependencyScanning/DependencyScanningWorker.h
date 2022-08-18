@@ -38,6 +38,9 @@ class DependencyConsumer {
 public:
   virtual ~DependencyConsumer() {}
 
+  virtual void handleSimpleDriverJob(std::string Executable, std::vector<std::string> Args) = 0;
+  virtual void handleInvocation(clang::CompilerInvocation CI) = 0;
+
   virtual void
   handleDependencyOutputOpts(const DependencyOutputOptions &Opts) = 0;
 
@@ -158,6 +161,14 @@ private:
   CASOptions CASOpts;
   bool UseCAS;
 };
+
+/// Disable implicit modules and canonicalize options that are only used by
+/// implicit modules.
+void clearImplicitModuleBuildOptions(CompilerInvocation &CI);
+
+/// Serialize the given invocation to -cc1 arguments, not including \c argv[0].
+std::vector<std::string>
+serializeCompilerInvocation(const CompilerInvocation &CI);
 
 } // end namespace dependencies
 } // end namespace tooling

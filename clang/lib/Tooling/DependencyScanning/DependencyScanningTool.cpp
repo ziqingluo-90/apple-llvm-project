@@ -50,6 +50,9 @@ llvm::Expected<std::string> DependencyScanningTool::getDependencyFile(
   /// Prints out all of the gathered dependencies into a string.
   class MakeDependencyPrinterConsumer : public DependencyConsumer {
   public:
+    void handleSimpleDriverJob(std::string Executable, std::vector<std::string> Args) override {}
+    void handleInvocation(CompilerInvocation CI) override {}
+
     void
     handleDependencyOutputOpts(const DependencyOutputOptions &Opts) override {
       this->Opts = std::make_unique<DependencyOutputOptions>(Opts);
@@ -412,15 +415,107 @@ DependencyScanningTool::getFullDependencies(
       return Tree.takeError();
   }
 
-  return Consumer.getFullDependencies(CommandLine, CASFileSystemRootID);
+  return Consumer.takeFullDependencies(CASFileSystemRootID);
 }
 
-FullDependenciesResult FullDependencyConsumer::getFullDependencies(
+llvm::Expected<FullDependenciesResult>
+DependencyScanningTool::getFullDependenciesLegacyDriverCommand(
+    const std::vector<std::string> &CommandLine, StringRef CWD,
+    const llvm::StringSet<> &AlreadySeen,
+    LookupModuleOutputCallback LookupModuleOutput,
+    llvm::Optional<StringRef> ModuleName) {
+  FullDependencyConsumer Consumer(AlreadySeen, LookupModuleOutput);
+  llvm::cas::CachingOnDiskFileSystem *FS =
+      Worker.useCAS() ? &Worker.getCASFS() : nullptr;
+  if (FS) {
+    FS->trackNewAccesses();
+    FS->setCurrentWorkingDirectory(CWD);
+  }
+
+  llvm::Error Result =
+      Worker.computeDependencies(CWD, CommandLine, Consumer, ModuleName);
+  if (Result)
+    return std::move(Result);
+
+  Optional<cas::CASID> CASFileSystemRootID;
+  if (FS) {
+    if (auto Tree = FS->createTreeFromNewAccesses())
+      CASFileSystemRootID = Tree->getID();
+    else
+      return Tree.takeError();
+  }
+
+  return Consumer.getFullDependenciesLegacyDriverCommand(CommandLine, CASFileSystemRootID);
+}
+
+Command::~Command() = default;
+CC1Command::CC1Command(CompilerInvocation CI) : Command(CK_CC1), BuildInvocation(std::move(CI)) {}
+std::string CC1Command::getExecutable() {
+  // FIXME: get the real value
+  return "clang";
+}
+std::vector<std::string> CC1Command::getArguments() {
+  return serializeCompilerInvocation(BuildInvocation);
+}
+
+void FullDependencyConsumer::handleInvocation(CompilerInvocation CI) {
+  clearImplicitModuleBuildOptions(CI);
+  Commands.push_back(std::make_unique<CC1Command>(std::move(CI)));
+}
+
+static bool needsModules(FrontendInputFile FIF) {
+  switch (FIF.getKind().getLanguage()) {
+  case Language::Unknown:
+  case Language::Asm:
+  case Language::LLVM_IR:
+    return false;
+  default:
+    return true;
+  }
+}
+
+FullDependenciesResult FullDependencyConsumer::takeFullDependencies(Optional<cas::CASID> CASFileSystemRootID) {
+  FullDependenciesResult FDR;
+  FullDependencies &FD = FDR.FullDeps;
+
+  FD.ID.ContextHash = std::move(ContextHash);
+  FD.FileDeps = std::move(Dependencies);
+  FD.PrebuiltModuleDeps = std::move(PrebuiltModuleDeps);
+  FD.Commands = std::move(Commands);
+  FD.CASFileSystemRootID = CASFileSystemRootID;
+
+  for (auto &&M : ClangModuleDeps) {
+    auto &MD = M.second;
+    if (MD.ImportedByMainFile)
+      FD.ClangModuleDeps.push_back(MD.ID);
+    // TODO: Avoid handleModuleDependency even being called for modules
+    //   we've already seen.
+    if (AlreadySeen.count(M.first))
+      continue;
+    FDR.DiscoveredModules.push_back(std::move(MD));
+  }
+
+  for (auto &Command : FD.Commands) {
+    if (auto *CC1 = dyn_cast<CC1Command>(Command.get())) {
+      auto &FrontendOpts = CC1->BuildInvocation.getFrontendOpts();
+      if (llvm::any_of(FrontendOpts.Inputs, needsModules)) {
+        for (const auto &PMD : FD.PrebuiltModuleDeps)
+          FrontendOpts.ModuleFiles.push_back(PMD.PCMFile);
+        for (const auto &ID : FD.ClangModuleDeps)
+          FrontendOpts.ModuleFiles.push_back(LookupModuleOutput(ID, ModuleOutputKind::ModuleFile));
+      }
+    }
+  }
+
+  return FDR;
+}
+
+FullDependenciesResult FullDependencyConsumer::getFullDependenciesLegacyDriverCommand(
     const std::vector<std::string> &OriginalCommandLine,
     Optional<cas::CASID> CASFileSystemRootID) const {
   FullDependencies FD;
 
-  FD.CommandLine = makeTUCommandLineWithoutPaths(
+  FD.DriverCommandLine = makeTUCommandLineWithoutPaths(
       ArrayRef<std::string>(OriginalCommandLine).slice(1));
 
   FD.ID.ContextHash = std::move(ContextHash);
@@ -428,13 +523,13 @@ FullDependenciesResult FullDependencyConsumer::getFullDependencies(
   FD.FileDeps.assign(Dependencies.begin(), Dependencies.end());
 
   for (const PrebuiltModuleDep &PMD : PrebuiltModuleDeps)
-    FD.CommandLine.push_back("-fmodule-file=" + PMD.PCMFile);
+    FD.DriverCommandLine.push_back("-fmodule-file=" + PMD.PCMFile);
 
   for (auto &&M : ClangModuleDeps) {
     auto &MD = M.second;
     if (MD.ImportedByMainFile) {
       FD.ClangModuleDeps.push_back(MD.ID);
-      FD.CommandLine.push_back(
+      FD.DriverCommandLine.push_back(
           "-fmodule-file=" +
           LookupModuleOutput(MD.ID, ModuleOutputKind::ModuleFile));
     }

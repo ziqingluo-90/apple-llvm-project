@@ -46,10 +46,10 @@
 // CHECK-PCH-NEXT:         }
 // CHECK-PCH-NEXT:       ],
 // CHECK-PCH-NEXT:       "command-line": [
-// CHECK-PCH:              "-fno-implicit-modules"
-// CHECK-PCH-NEXT:         "-fno-implicit-module-maps"
-// CHECK-PCH-NEXT:         "-fmodule-file=[[PREFIX]]/build/[[HASH_MOD_COMMON]]/ModCommon-{{.*}}.pcm"
-// CHECK-PCH-NEXT:       ],
+// CHECK-PCH-NOT:          "-fimplicit-modules"
+// CHECK-PCH-NOT:          "-fimplicit-module-maps"
+// CHECK-PCH:              "-fmodule-file=[[PREFIX]]/build/[[HASH_MOD_COMMON]]/ModCommon-{{.*}}.pcm"
+// CHECK-PCH:            ],
 // CHECK-PCH-NEXT:       "file-deps": [
 // CHECK-PCH-NEXT:         "[[PREFIX]]/pch.h"
 // CHECK-PCH-NEXT:       ],
@@ -105,10 +105,10 @@
 // CHECK-TU-NEXT:         }
 // CHECK-TU-NEXT:       ],
 // CHECK-TU-NEXT:       "command-line": [
-// CHECK-TU:              "-fno-implicit-modules",
-// CHECK-TU-NEXT:         "-fno-implicit-module-maps",
-// CHECK-TU-NEXT:         "-fmodule-file=[[PREFIX]]/build/[[HASH_MOD_TU:.*]]/ModTU-{{.*}}.pcm"
-// CHECK-TU-NEXT:       ],
+// CHECK-TU-NOT:          "-fimplicit-modules",
+// CHECK-TU-NOT:          "-fimplicit-module-maps",
+// CHECK-TU:              "-fmodule-file=[[PREFIX]]/build/[[HASH_MOD_TU:.*]]/ModTU-{{.*}}.pcm"
+// CHECK-TU:            ],
 // CHECK-TU-NEXT:       "file-deps": [
 // CHECK-TU-NEXT:         "[[PREFIX]]/tu.c",
 // CHECK-TU-NEXT:         "[[PREFIX]]/pch.h.gch"

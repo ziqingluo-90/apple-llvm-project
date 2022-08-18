@@ -73,9 +73,10 @@
 // CHECK-NEXT:         }
 // CHECK-NEXT:       ]
 // CHECK-NEXT:       "command-line": [
-// CHECK-NEXT:         "-fsyntax-only",
+// CHECK-NEXT:         "-cc1",
 // CHECK-NOT:          "-fmodules-cache-path=
 // CHECK-NOT:          "-fmodules-validate-once-per-build-session"
+// CHECK-NOT:          "-fbuild-session-timestamp=
 // CHECK-NOT:          "-fbuild-session-file=
 // CHECK-NOT:          "-fmodules-prune-interval=
 // CHECK-NOT:          "-fmodules-prune-after=
