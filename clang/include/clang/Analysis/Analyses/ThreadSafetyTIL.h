@@ -47,6 +47,7 @@
 #define LLVM_CLANG_ANALYSIS_ANALYSES_THREADSAFETYTIL_H
 
 #include "clang/AST/Decl.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/Analysis/Analyses/ThreadSafetyUtil.h"
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -642,7 +643,9 @@ typename V::R_SExpr Literal::traverse(V &Vs, typename V::R_Ctx Ctx) {
 /// At compile time, pointer literals are represented by symbolic names.
 class LiteralPtr : public SExpr {
 public:
-  LiteralPtr(const ValueDecl *D) : SExpr(COP_LiteralPtr), Cvdecl(D) {}
+  LiteralPtr(const ValueDecl *D) : SExpr(COP_LiteralPtr), Cvdecl(D) {assert(D);}
+  LiteralPtr(const CXXBindTemporaryExpr *E)
+      : SExpr(COP_LiteralPtr), TempObj(E) {assert(E);}
   LiteralPtr(const LiteralPtr &) = default;
 
   static bool classof(const SExpr *E) { return E->opcode() == COP_LiteralPtr; }
@@ -657,14 +660,24 @@ public:
   }
 
   template <class C>
-  typename C::CType compare(const LiteralPtr* E, C& Cmp) const {
-    if (!Cvdecl || !E->Cvdecl)
-      return Cmp.comparePointers(this, E);
-    return Cmp.comparePointers(Cvdecl, E->Cvdecl);
+  typename C::CType compare(const LiteralPtr *E, C &Cmp) const {
+    const void *ThisPtrVal = Cvdecl;
+    const void *ThatPtrVal = E->Cvdecl;
+
+    if (!ThisPtrVal)
+      ThisPtrVal = TempObj;
+    if (!ThatPtrVal)
+      ThatPtrVal = E->TempObj;
+    assert(ThisPtrVal && ThatPtrVal);
+    return Cmp.comparePointers(ThisPtrVal, ThatPtrVal);
   }
 
 private:
-  const ValueDecl *Cvdecl;
+  // The object pointed by this `LiteralPtr` is represented by either a
+  // `ValueDecl` (a declared variable) or a `CXXBindTemporaryExpr` (a temporary
+  // object).
+  const ValueDecl *Cvdecl = nullptr;
+  const CXXBindTemporaryExpr *TempObj = nullptr;
 };
 
 /// A function -- a.k.a. lambda abstraction.

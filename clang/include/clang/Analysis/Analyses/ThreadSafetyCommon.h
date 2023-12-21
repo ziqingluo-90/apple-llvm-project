@@ -22,6 +22,7 @@
 #define LLVM_CLANG_ANALYSIS_ANALYSES_THREADSAFETYCOMMON_H
 
 #include "clang/AST/Decl.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/Analysis/Analyses/PostOrderCFGView.h"
 #include "clang/Analysis/Analyses/ThreadSafetyTIL.h"
 #include "clang/Analysis/Analyses/ThreadSafetyTraverse.h"
@@ -386,10 +387,7 @@ public:
 
   // Translate a variable reference.
   til::LiteralPtr *createVariable(const VarDecl *VD);
-
-  // Create placeholder for this: we don't know the VarDecl on construction yet.
-  std::pair<til::LiteralPtr *, StringRef>
-  createThisPlaceholder(const Expr *Exp);
+  til::LiteralPtr *createVariable(const CXXBindTemporaryExpr *TD);
 
   // Translate a clang statement or expression to a TIL expression.
   // Also performs substitution of variables; Ctx provides the context.

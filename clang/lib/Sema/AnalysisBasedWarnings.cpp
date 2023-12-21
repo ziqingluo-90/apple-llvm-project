@@ -2530,7 +2530,10 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   assert(Body);
 
   // Construct the analysis context with the specified CFG build options.
-  AnalysisDeclContext AC(/* AnalysisDeclContextManager */ nullptr, D);
+  CFG::BuildOptions BO{};
+  BO.AddRichCXXConstructors = true;
+  BO.AddImplicitDtors = true;
+  AnalysisDeclContext AC(/* AnalysisDeclContextManager */ nullptr, D, BO);
 
   // Don't generate EH edges for CallExprs as we'd like to avoid the n^2
   // explosion for destructors that can result and the compile time hit.

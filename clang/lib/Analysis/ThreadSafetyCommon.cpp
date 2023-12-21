@@ -221,11 +221,8 @@ CapabilityExpr SExprBuilder::translateAttrExpr(const Expr *AttrExp,
 til::LiteralPtr *SExprBuilder::createVariable(const VarDecl *VD) {
   return new (Arena) til::LiteralPtr(VD);
 }
-
-std::pair<til::LiteralPtr *, StringRef>
-SExprBuilder::createThisPlaceholder(const Expr *Exp) {
-  return {new (Arena) til::LiteralPtr(nullptr),
-          ClassifyDiagnostic(Exp->getType())};
+til::LiteralPtr *SExprBuilder::createVariable(const CXXBindTemporaryExpr *TD) {
+  return new (Arena) til::LiteralPtr(TD);
 }
 
 // Translate a clang statement or expression to a TIL expression.

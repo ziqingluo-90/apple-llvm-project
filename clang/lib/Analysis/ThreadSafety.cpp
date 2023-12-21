@@ -16,6 +16,7 @@
 
 #include "clang/Analysis/Analyses/ThreadSafety.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/Attrs.inc"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclGroup.h"
@@ -32,6 +33,7 @@
 #include "clang/Analysis/Analyses/ThreadSafetyUtil.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/Analysis/CFG.h"
+#include "clang/Analysis/ConstructionContext.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/OperatorKinds.h"
@@ -41,6 +43,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/ImmutableMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Allocator.h"
@@ -1559,9 +1562,8 @@ class BuildLockset : public ConstStmtVisitor<BuildLockset> {
     Analyzer->checkPtAccess(FSet, Exp, AK, POK);
   }
 
-  void handleCall(const Expr *Exp, const NamedDecl *D,
-                  til::LiteralPtr *Self = nullptr,
-                  SourceLocation Loc = SourceLocation());
+  void handleCall(const Expr *Exp, const NamedDecl *D, SourceLocation Loc,
+                  til::LiteralPtr *Self = nullptr);
   void examineArguments(const FunctionDecl *FD,
                         CallExpr::const_arg_iterator ArgBegin,
                         CallExpr::const_arg_iterator ArgEnd,
@@ -1574,13 +1576,14 @@ public:
         FunctionExitFSet(FunctionExitFSet), LVarCtx(Info.EntryContext),
         CtxIndex(Info.EntryIndex) {}
 
+  void handleConstructionContext(const ConstructionContext *CC,
+                                 const Expr *Exp);
   void VisitUnaryOperator(const UnaryOperator *UO);
   void VisitBinaryOperator(const BinaryOperator *BO);
   void VisitCastExpr(const CastExpr *CE);
   void VisitCallExpr(const CallExpr *Exp);
   void VisitCXXConstructExpr(const CXXConstructExpr *Exp);
   void VisitDeclStmt(const DeclStmt *S);
-  void VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *Exp);
   void VisitReturnStmt(const ReturnStmt *S);
 };
 
@@ -1790,36 +1793,40 @@ void ThreadSafetyAnalyzer::checkPtAccess(const FactSet &FSet, const Expr *Exp,
 ///
 /// \param Exp   The call expression.
 /// \param D     The callee declaration.
-/// \param Self  If \p Exp = nullptr, the implicit this argument or the argument
-///              of an implicitly called cleanup function.
-/// \param Loc   If \p Exp = nullptr, the location.
+/// \param Loc   The source location of the call.
+/// \param Self  The implicit this argument if `Exp` is a constructor call or
+///              the argument of an implicitly called cleanup function.
 void BuildLockset::handleCall(const Expr *Exp, const NamedDecl *D,
-                              til::LiteralPtr *Self, SourceLocation Loc) {
+                              SourceLocation Loc, til::LiteralPtr *Self) {
   CapExprSet ExclusiveLocksToAdd, SharedLocksToAdd;
   CapExprSet ExclusiveLocksToRemove, SharedLocksToRemove, GenericLocksToRemove;
   CapExprSet ScopedReqsAndExcludes;
-
-  // Figure out if we're constructing an object of scoped lockable class
+  // The creating scoped capability if `Exp` is a constructor call of a scoped
+  // capability class or it is a call that initializes a variable.
   CapabilityExpr Scp;
-  if (Exp) {
-    assert(!Self);
-    const auto *TagT = Exp->getType()->getAs<TagType>();
-    if (TagT && Exp->isPRValue()) {
-      std::pair<til::LiteralPtr *, StringRef> Placeholder =
-          Analyzer->SxBuilder.createThisPlaceholder(Exp);
-      [[maybe_unused]] auto inserted =
-          ConstructedObjects.insert({Exp, Placeholder.first});
-      assert(inserted.second && "Are we visiting the same expression again?");
-      if (isa<CXXConstructExpr>(Exp))
-        Self = Placeholder.first;
-      if (TagT->getDecl()->hasAttr<ScopedLockableAttr>())
-        Scp = CapabilityExpr(Placeholder.first, Placeholder.second, false);
+
+  if (Exp && Self) {
+    // If both `Exp` and `Self` are non-null, it is constructing a new object.
+    // If the type of the object is annotated as "scoped capability", create a
+    // `ScopedLockableFactEntry`.
+    if (Exp->getType()->isRecordType()) {
+      const CXXRecordDecl *RD = Exp->getType()->getAsCXXRecordDecl();
+
+      if (RD && RD->hasAttr<ScopedLockableAttr>())
+        Scp = Analyzer->SxBuilder.translateAttrExpr(
+            nullptr, D,
+            // We have `Self` so no need to figure out the "self" through
+            // `DeclExp`
+            nullptr, Self);
     }
-
-    assert(Loc.isInvalid());
-    Loc = Exp->getExprLoc();
+    if (!isa<CXXConstructExpr>(Exp))
+      // If `Exp` is not a constructor call, attributes handled below should not
+      // be associated with `Self`.
+      // e.g.,
+      // `ScopedCapClass var = f();`
+      // the attribute of `f` should NOT be translated with respect to `var`.
+      Self = nullptr;
   }
-
   for(const Attr *At : D->attrs()) {
     switch (At->getKind()) {
       // When we encounter a lock function, we need to add the lock to our
@@ -2084,69 +2091,29 @@ void BuildLockset::VisitCallExpr(const CallExpr *Exp) {
   auto *D = dyn_cast_or_null<NamedDecl>(Exp->getCalleeDecl());
   if(!D || !D->hasAttrs())
     return;
-  handleCall(Exp, D);
+  handleCall(Exp, D, Exp->getEndLoc());
 }
 
 void BuildLockset::VisitCXXConstructExpr(const CXXConstructExpr *Exp) {
   const CXXConstructorDecl *D = Exp->getConstructor();
+  // The only `CXXConstructExpr` cases that are NOT covered by
+  // `ConstructionContext` is when the constructor call is a part of a call to a
+  // C Variadic function.  This overrided member function cover the case.
   if (D && D->isCopyConstructor()) {
-    const Expr* Source = Exp->getArg(0);
+    const Expr *Source = Exp->getArg(0);
     checkAccess(Source, AK_Read);
   } else {
     examineArguments(D, Exp->arg_begin(), Exp->arg_end());
   }
-  if (D && D->hasAttrs())
-    handleCall(Exp, D);
-}
-
-static const Expr *UnpackConstruction(const Expr *E) {
-  if (auto *CE = dyn_cast<CastExpr>(E))
-    if (CE->getCastKind() == CK_NoOp)
-      E = CE->getSubExpr()->IgnoreParens();
-  if (auto *CE = dyn_cast<CastExpr>(E))
-    if (CE->getCastKind() == CK_ConstructorConversion ||
-        CE->getCastKind() == CK_UserDefinedConversion)
-      E = CE->getSubExpr();
-  if (auto *BTE = dyn_cast<CXXBindTemporaryExpr>(E))
-    E = BTE->getSubExpr();
-  return E;
+  // Omit handling the constructor call since 
+  // 1) we do not have `ConstructionContext` to help us get the constructing object;
+  // 2) pass objects to C functions should be rare;
+  // 3) it will be more rare that the constructor is not for temporary objects. 
 }
 
 void BuildLockset::VisitDeclStmt(const DeclStmt *S) {
   // adjust the context
   LVarCtx = Analyzer->LocalVarMap.getNextContext(CtxIndex, S, LVarCtx);
-
-  for (auto *D : S->getDeclGroup()) {
-    if (auto *VD = dyn_cast_or_null<VarDecl>(D)) {
-      const Expr *E = VD->getInit();
-      if (!E)
-        continue;
-      E = E->IgnoreParens();
-
-      // handle constructors that involve temporaries
-      if (auto *EWC = dyn_cast<ExprWithCleanups>(E))
-        E = EWC->getSubExpr()->IgnoreParens();
-      E = UnpackConstruction(E);
-
-      if (auto Object = ConstructedObjects.find(E);
-          Object != ConstructedObjects.end()) {
-        Object->second->setClangDecl(VD);
-        ConstructedObjects.erase(Object);
-      }
-    }
-  }
-}
-
-void BuildLockset::VisitMaterializeTemporaryExpr(
-    const MaterializeTemporaryExpr *Exp) {
-  if (const ValueDecl *ExtD = Exp->getExtendingDecl()) {
-    if (auto Object =
-            ConstructedObjects.find(UnpackConstruction(Exp->getSubExpr()));
-        Object != ConstructedObjects.end()) {
-      Object->second->setClangDecl(ExtD);
-      ConstructedObjects.erase(Object);
-    }
-  }
 }
 
 void BuildLockset::VisitReturnStmt(const ReturnStmt *S) {
@@ -2260,6 +2227,67 @@ static bool neverReturns(const CFGBlock *B) {
   return false;
 }
 
+void BuildLockset::handleConstructionContext(const ConstructionContext *CC,
+                                             const Expr *Exp) {
+  const NamedDecl *D = nullptr;
+
+  if (auto *E = dyn_cast<CXXConstructExpr>(Exp)) {
+    const CXXConstructorDecl *CD = E->getConstructor();
+
+    if (CD->isCopyConstructor())
+      checkAccess(E->getArg(0), AK_Read);
+    else
+      examineArguments(CD, E->arg_begin(), E->arg_end());
+    D = CD;
+  } else if (auto *E = dyn_cast<CallExpr>(Exp)) {
+    const FunctionDecl *FD = E->getDirectCallee();
+    if (!FD)
+      return;
+    examineArguments(FD, E->arg_begin(), E->arg_end());
+    D = FD;
+  } else
+    return;
+
+  til::LiteralPtr *Self = nullptr;
+
+  switch (CC->getKind()) {
+  case clang::ConstructionContext::SimpleVariableKind:
+  case clang::ConstructionContext::CXX17ElidedCopyVariableKind: {    
+    // FIXME: why can we assume there is a single decl?
+    const auto *VD =
+        cast<VariableConstructionContext>(CC)->getDeclStmt()->getSingleDecl();
+
+    assert(isa<VarDecl>(VD));
+    Self = Analyzer->SxBuilder.createVariable(cast<VarDecl>(VD));
+    break;
+  }
+  case clang::ConstructionContext::SimpleTemporaryObjectKind:
+  case clang::ConstructionContext::ElidedTemporaryObjectKind: {
+    auto *TempCC = cast<TemporaryObjectConstructionContext>(CC);
+
+    if (auto *MTE = TempCC->getMaterializedTemporaryExpr())
+      if (auto *ED = MTE->getExtendingDecl())
+        Self = Analyzer->SxBuilder.createVariable(cast<VarDecl>(ED));
+    if (!Self)
+      if (auto *BT = TempCC->getCXXBindTemporaryExpr())
+        Self = Analyzer->SxBuilder.createVariable(BT);
+    if (!Self)
+      return;
+    break;
+  }
+  case clang::ConstructionContext::CXX17ElidedCopyReturnedValueKind: {
+    Self = Analyzer->SxBuilder.createVariable(
+        cast<CXX17ElidedCopyReturnedValueConstructionContext>(CC)
+            ->getCXXBindTemporaryExpr());
+    break;
+  }
+  default:
+    return;
+  }
+  assert(Self);
+  handleCall(Exp, D, Exp->getEndLoc(), Self);
+}
+
 /// Check a function's CFG for thread-safety violations.
 ///
 /// We traverse the blocks in the CFG, compute the set of mutexes that are held
@@ -2281,7 +2309,7 @@ void ThreadSafetyAnalyzer::runAnalysis(AnalysisDeclContext &AC) {
 
   if (D->hasAttr<NoThreadSafetyAnalysisAttr>())
     return;
-
+//CFGraph->dump(D->getLangOpts(), true);
   // FIXME: Do something a bit more intelligent inside constructor and
   // destructor code.  Constructors and destructors must assume unique access
   // to 'this', so checks on member variable access is disabled, but we should
@@ -2461,42 +2489,50 @@ void ThreadSafetyAnalyzer::runAnalysis(AnalysisDeclContext &AC) {
           LocksetBuilder.Visit(CS.getStmt());
           break;
         }
+        case clang::CFGElement::CXXRecordTypedCall: {
+          CFGCXXRecordTypedCall RTC = BI.castAs<CFGCXXRecordTypedCall>();
+
+          LocksetBuilder.handleConstructionContext(RTC.getConstructionContext(),
+                                                   cast<Expr>(RTC.getStmt()));
+          break;
+        }
+        case CFGElement::Constructor: {
+          const CFGConstructor &CC = BI.castAs<CFGConstructor>();
+
+          LocksetBuilder.handleConstructionContext(
+              CC.getConstructionContext(),
+              cast<CXXConstructExpr>(CC.getStmt()));
+          break;
+        }
         // Ignore BaseDtor and MemberDtor for now.
         case CFGElement::AutomaticObjectDtor: {
           CFGAutomaticObjDtor AD = BI.castAs<CFGAutomaticObjDtor>();
           const auto *DD = AD.getDestructorDecl(AC.getASTContext());
           if (!DD->hasAttrs())
-            break;
-
-          LocksetBuilder.handleCall(nullptr, DD,
-                                    SxBuilder.createVariable(AD.getVarDecl()),
-                                    AD.getTriggerStmt()->getEndLoc());
+            break;    
+          LocksetBuilder.handleCall(/*Exp=*/nullptr, DD,
+                                    AD.getTriggerStmt()->getEndLoc(),
+                                    SxBuilder.createVariable(AD.getVarDecl()));                                       
           break;
         }
 
-        case CFGElement::CleanupFunction: {
+        case CFGElement::CleanupFunction: {                
           const CFGCleanupFunction &CF = BI.castAs<CFGCleanupFunction>();
           LocksetBuilder.handleCall(/*Exp=*/nullptr, CF.getFunctionDecl(),
-                                    SxBuilder.createVariable(CF.getVarDecl()),
-                                    CF.getVarDecl()->getLocation());
+                                    CF.getVarDecl()->getLocation(),
+                                    SxBuilder.createVariable(CF.getVarDecl()));
           break;
         }
 
         case CFGElement::TemporaryDtor: {
           auto TD = BI.castAs<CFGTemporaryDtor>();
+          const auto *DD = TD.getDestructorDecl(AC.getASTContext());
 
-          // Clean up constructed object even if there are no attributes to
-          // keep the number of objects in limbo as small as possible.
-          if (auto Object = LocksetBuilder.ConstructedObjects.find(
-                  TD.getBindTemporaryExpr()->getSubExpr());
-              Object != LocksetBuilder.ConstructedObjects.end()) {
-            const auto *DD = TD.getDestructorDecl(AC.getASTContext());
-            if (DD->hasAttrs())
-              // TODO: the location here isn't quite correct.
-              LocksetBuilder.handleCall(nullptr, DD, Object->second,
-                                        TD.getBindTemporaryExpr()->getEndLoc());
-            LocksetBuilder.ConstructedObjects.erase(Object);
-          }
+          if (DD->hasAttrs())
+            // TODO: the location here isn't quite correct.
+            LocksetBuilder.handleCall(
+                nullptr, DD, TD.getBindTemporaryExpr()->getEndLoc(),
+                SxBuilder.createVariable(TD.getBindTemporaryExpr()));
           break;
         }
         default:
