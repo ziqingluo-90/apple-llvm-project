@@ -9021,6 +9021,12 @@ static void HandleAnnotateTypeAttr(TypeProcessingState &State,
 static void HandleLifetimeBoundAttr(TypeProcessingState &State,
                                     QualType &CurType,
                                     ParsedAttr &Attr) {
+  // In lifetime-infer-test-mode, source-written lifetime/escape annotations
+  // are not attached to the AST, so the lifetime safety analysis can be
+  // evaluated as if they were never written.
+  if (State.getSema().getLangOpts().LifetimeInferTestMode)
+    return;
+
   if (State.getDeclarator().isDeclarationOfFunction()) {
     CurType = State.getAttributedType(
         createSimpleAttr<LifetimeBoundAttr>(State.getSema().Context, Attr),
@@ -9034,6 +9040,12 @@ static void HandleLifetimeBoundAttr(TypeProcessingState &State,
 
 static void HandleLifetimeCaptureByAttr(TypeProcessingState &State,
                                         QualType &CurType, ParsedAttr &PA) {
+  // In lifetime-infer-test-mode, source-written lifetime/escape annotations
+  // are not attached to the AST, so the lifetime safety analysis can be
+  // evaluated as if they were never written.
+  if (State.getSema().getLangOpts().LifetimeInferTestMode)
+    return;
+
   if (State.getDeclarator().isDeclarationOfFunction()) {
     auto *Attr = State.getSema().ParseLifetimeCaptureByAttr(PA, "this");
     if (Attr)

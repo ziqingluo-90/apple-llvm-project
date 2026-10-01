@@ -1432,6 +1432,12 @@ static void handleReturnsNonNullAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 }
 
 static void handleNoEscapeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  // In lifetime-infer-test-mode, source-written lifetime/escape annotations
+  // are not attached to the AST, so the lifetime safety analysis can be
+  // evaluated as if they were never written.
+  if (S.getLangOpts().LifetimeInferTestMode)
+    return;
+
   if (D->isInvalidDecl())
     return;
 
@@ -4592,8 +4598,26 @@ LifetimeCaptureByAttr *Sema::ParseLifetimeCaptureByAttr(const ParsedAttr &AL,
   return CapturedBy;
 }
 
+/// [[clang::lifetimebound]] on a parameter (or the implicit object parameter)
+/// has no custom semantic checking of its own, so it would otherwise be
+/// attached via the generic SimpleHandler path. Route it through an explicit
+/// case so that, in lifetime-infer-test-mode, source-written lifetimebound
+/// annotations are not attached to the AST, so the lifetime safety analysis
+/// can be evaluated as if they were never written.
+static void handleLifetimeBoundAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  if (S.getLangOpts().LifetimeInferTestMode)
+    return;
+  handleSimpleAttribute<LifetimeBoundAttr>(S, D, AL);
+}
+
 static void handleLifetimeCaptureByAttr(Sema &S, Decl *D,
                                         const ParsedAttr &AL) {
+  // In lifetime-infer-test-mode, source-written lifetime/escape annotations
+  // are not attached to the AST, so the lifetime safety analysis can be
+  // evaluated as if they were never written.
+  if (S.getLangOpts().LifetimeInferTestMode)
+    return;
+
   auto *PVD = dyn_cast<ParmVarDecl>(D);
   assert(PVD);
   auto *CaptureByAttr = S.ParseLifetimeCaptureByAttr(AL, PVD->getName());
@@ -7989,6 +8013,9 @@ ProcessDeclAttribute(Sema &S, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_LifetimeCaptureBy:
     handleLifetimeCaptureByAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_LifetimeBound:
+    handleLifetimeBoundAttr(S, D, AL);
     break;
   case ParsedAttr::AT_CalledOnce:
     handleCalledOnceAttr(S, D, AL);

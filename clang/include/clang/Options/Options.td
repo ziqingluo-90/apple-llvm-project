@@ -2152,6 +2152,15 @@ defm lifetime_safety_inference
                   BothFlags<[], [CC1Option],
                             " lifetime safety inference for C++">>;
 
+defm lifetime_infer_test_mode
+    : BoolFOption<"lifetime-infer-test-mode",
+                  LangOpts<"LifetimeInferTestMode">, DefaultFalse,
+                  PosFlag<SetTrue, [], [CC1Option], "Enable">,
+                  NegFlag<SetFalse, [], [CC1Option], "Disable">,
+                  BothFlags<[], [CC1Option],
+                            " lifetime safety analysis ignoring existing "
+                            "explicit lifetime/escape annotations">>;
+
 defm lifetime_safety_tu_analysis
     : BoolFOption<"experimental-lifetime-safety-tu-analysis",
                   LangOpts<"EnableLifetimeSafetyTUAnalysis">, DefaultFalse,
