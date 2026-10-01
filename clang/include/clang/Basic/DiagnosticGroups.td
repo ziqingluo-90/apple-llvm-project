@@ -719,6 +719,13 @@ Detects misuse of [[clang::noescape]] annotation where the parameter escapes (fo
   }];
 }
 
+def LifetimeSafetyEscapeInference
+    : DiagGroup<"lifetime-safety-escape-inference"> {
+  code Documentation = [{
+Reports, for every parameter of an analyzed function, whether lifetime safety analysis infers that the parameter escapes the function.
+  }];
+}
+
 def LifetimeSafetyAnnotationPlacement
     : DiagGroup<"lifetime-safety-annotation-placement",
                 [LifetimeSafetyInapplicableLifetimebound,

@@ -11137,6 +11137,11 @@ def warn_lifetime_safety_noescape_escapes
       InGroup<LifetimeSafetyNoescape>,
       DefaultIgnore;
 
+def remark_lifetime_safety_escape_inferred
+    : Remark<"%select{parameter %2|the implicit 'this' parameter}0 is inferred to %select{not escape|escape}1 the function">,
+      InGroup<LifetimeSafetyEscapeInference>,
+      DefaultIgnore;
+
 // For non-floating point, expressions of the form x == x or x != x
 // should result in a warning, since these always evaluate to a constant.
 // Array comparisons have similar warnings

@@ -166,6 +166,15 @@ public:
   // Adds inferred lifetime bound attribute for implicit this to its
   // TypeSourceInfo.
   virtual void addLifetimeBoundToImplicitThis(const CXXMethodDecl *MD) {}
+
+  // Reports whether a parameter is inferred to escape the function.
+  virtual void reportParamEscapeInferred(const ParmVarDecl *PVD,
+                                         bool Escapes) {}
+
+  // Reports whether the implicit this parameter is inferred to escape the
+  // function.
+  virtual void reportImplicitThisEscapeInferred(const CXXMethodDecl *MD,
+                                                bool Escapes) {}
 };
 
 /// The main entry point for the analysis.

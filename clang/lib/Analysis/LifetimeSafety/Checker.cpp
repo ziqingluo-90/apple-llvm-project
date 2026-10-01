@@ -552,6 +552,30 @@ public:
     }
   }
 
+  /// Reports, for every parameter (and the implicit this) of the analyzed
+  /// function, whether it ended up with a lifetimebound attribute after
+  /// inferAnnotations(), i.e. whether it is inferred to escape.
+  void reportEscapeInferenceResults() {
+    if (!SemaHelper)
+      return;
+    const auto *FDecl = dyn_cast_or_null<FunctionDecl>(FD);
+    if (!FDecl)
+      return;
+    // inferAnnotations() attaches attributes to the most recent declaration.
+    const FunctionDecl *Merged = getDeclWithMergedLifetimeBoundAttrs(FDecl);
+    for (const ParmVarDecl *PVD : FDecl->parameters()) {
+      const ParmVarDecl *Inferred =
+          Merged->getParamDecl(PVD->getFunctionScopeIndex());
+      SemaHelper->reportParamEscapeInferred(
+          PVD, Inferred->hasAttr<LifetimeBoundAttr>());
+    }
+    if (const auto *MD = dyn_cast<CXXMethodDecl>(FDecl);
+        MD && MD->isImplicitObjectMemberFunction() &&
+        !isa<CXXConstructorDecl, CXXDestructorDecl>(MD))
+      SemaHelper->reportImplicitThisEscapeInferred(
+          MD, implicitObjectParamIsLifetimeBound(MD));
+  }
+
   /// Extract expressions from the origin flow chain for diagnostic purposes.
   ///
   /// Given a chain of origins that shows how a loan propagates, this function

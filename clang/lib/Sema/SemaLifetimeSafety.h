@@ -495,6 +495,18 @@ public:
     S.addLifetimeBoundToImplicitThis(const_cast<CXXMethodDecl *>(MD));
   }
 
+  void reportParamEscapeInferred(const ParmVarDecl *PVD,
+                                 bool Escapes) override {
+    S.Diag(PVD->getLocation(), diag::remark_lifetime_safety_escape_inferred)
+        << /*IsThis=*/0 << Escapes << PVD << PVD->getSourceRange();
+  }
+
+  void reportImplicitThisEscapeInferred(const CXXMethodDecl *MD,
+                                        bool Escapes) override {
+    S.Diag(MD->getLocation(), diag::remark_lifetime_safety_escape_inferred)
+        << /*IsThis=*/1 << Escapes << "";
+  }
+
 private:
   struct LifetimeBoundMacroCache {
     bool IsBuilt = false;
