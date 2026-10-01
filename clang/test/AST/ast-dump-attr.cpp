@@ -299,3 +299,15 @@ int mergeAttrTest() __attribute__((unused,no_thread_safety_analysis));
 // CHECK-NEXT: AnnotateAttr{{.*}} Inherited
 // CHECK-NEXT: UnusedAttr
 // CHECK-NEXT: NoThreadSafetyAnalysisAttr
+
+void TestNoParamsEscape(int *p, int *q);
+// CHECK: FunctionDecl{{.*}} TestNoParamsEscape
+// CHECK-NEXT: ParmVarDecl
+// CHECK-NEXT: ParmVarDecl
+// CHECK-NOT: ParamsEscapeAttr
+
+void TestParamsEscape(int *p, int *q) __attribute__((params_escape(2, 1)));
+// CHECK: FunctionDecl{{.*}} TestParamsEscape
+// CHECK-NEXT: ParmVarDecl
+// CHECK-NEXT: ParmVarDecl
+// CHECK-NEXT: ParamsEscapeAttr{{.*}} 1 2

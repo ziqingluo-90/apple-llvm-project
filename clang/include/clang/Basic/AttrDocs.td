@@ -5645,6 +5645,30 @@ system) and does not imply undefined behavior, making it more widely applicable.
   }];
 }
 
+def ParamsEscapeDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+The ``params_escape`` attribute lists the parameters of a function that escape.
+It takes one or more 1-based parameter indices, each of which must name a
+parameter of pointer or reference type:
+
+.. code-block:: c
+
+  void keep(int *p, int *q, int *r) __attribute__((params_escape(1, 3)));
+
+Here, parameters 1 and 3 escape.
+
+The attribute can be attached to functions, C++ member functions, Objective-C
+methods, blocks, and to variables, fields, parameters, and typedefs of function
+pointer or block pointer type. Like ``nonnull``, indices count the implicit
+``this`` parameter of a non-static C++ member function as parameter 1, so the
+first declared parameter of such a function has index 2. Index 1 names ``this``
+itself. For Objective-C methods, ``self`` and ``_cmd`` are not counted.
+
+The attribute is not part of the function type.
+  }];
+}
+
 def RestrictDocs : Documentation {
   let Category = DocCatFunction;
   let Heading = "malloc";

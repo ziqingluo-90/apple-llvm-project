@@ -2664,6 +2664,15 @@ def NonNull : InheritableParamAttr {
   let Documentation = [NonNullDocs];
 }
 
+def ParamsEscape : InheritableAttr {
+  let Spellings = [Clang<"params_escape">];
+  let Subjects = SubjectList<[HasFunctionProto], WarnDiag,
+                             "functions, methods, blocks, and function pointers">;
+  let Args = [VariadicParamIdxArgument<"Args">];
+  let InheritEvenIfAlreadyPresent = 1;
+  let Documentation = [ParamsEscapeDocs];
+}
+
 def ReturnsNonNull : InheritableAttr {
   let Spellings = [GCC<"returns_nonnull">];
   let Subjects = SubjectList<[ObjCMethod, Function]>;

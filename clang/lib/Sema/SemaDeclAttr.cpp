@@ -1446,6 +1446,42 @@ static void handleNoEscapeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   D->addAttr(::new (S.Context) NoEscapeAttr(S.Context, AL));
 }
 
+/// Validate the indices of 'params_escape' and attach the attribute to \p D.
+/// Indices that name a non-pointer, non-reference parameter are diagnosed and
+/// dropped.
+static void handleParamsEscapeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
+  if (!AL.checkAtLeastNumArgs(S, 1))
+    return;
+
+  SmallVector<ParamIdx, 8> Idxs;
+  for (unsigned I = 0; I < AL.getNumArgs(); ++I) {
+    Expr *Ex = AL.getArgAsExpr(I);
+    ParamIdx Idx;
+    if (!S.checkFunctionOrMethodParameterIndex(
+            D, AL, I + 1, Ex, Idx, /*CanIndexImplicitThis=*/true))
+      return;
+
+    bool IsThis = Idx.getSourceIndex() == 1 && hasImplicitObjectParameter(D);
+    if (!IsThis &&
+        !S.isValidPointerAttrType(
+            getFunctionOrMethodParamType(D, Idx.getASTIndex()),
+            /*RefOkay=*/true)) {
+      S.Diag(AL.getLoc(), diag::warn_attribute_pointers_only)
+          << AL << Ex->getSourceRange() << 0;
+      continue;
+    }
+    Idxs.push_back(Idx);
+  }
+
+  if (Idxs.empty())
+    return;
+
+  llvm::array_pod_sort(Idxs.begin(), Idxs.end());
+  Idxs.erase(llvm::unique(Idxs), Idxs.end());
+  D->addAttr(::new (S.Context)
+                 ParamsEscapeAttr(S.Context, AL, Idxs.data(), Idxs.size()));
+}
+
 static void handleAssumeAlignedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   Expr *E = AL.getArgAsExpr(0),
        *OE = AL.getNumArgs() > 1 ? AL.getArgAsExpr(1) : nullptr;
@@ -7915,6 +7951,9 @@ ProcessDeclAttribute(Sema &S, Decl *D, const ParsedAttr &AL,
       handleNonNullAttrParameter(S, PVD, AL);
     else
       handleNonNullAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_ParamsEscape:
+    handleParamsEscapeAttr(S, D, AL);
     break;
   case ParsedAttr::AT_ReturnsNonNull:
     handleReturnsNonNullAttr(S, D, AL);
