@@ -3527,6 +3527,9 @@ def warn_attribute_pointers_only : Warning<
   "%0 attribute only applies to%select{| constant}1 pointer arguments">,
   InGroup<IgnoredAttributes>;
 def err_attribute_pointers_only : Error<warn_attribute_pointers_only.Summary>;
+def warn_params_escape_mismatch : Warning<
+  "'params_escape' attributes of the source and the destination do not match">,
+  InGroup<ParamsEscapeMismatch>;
 def err_attribute_integers_only : Error<
   "%0 attribute argument may only refer to a function parameter of integer "
   "type">;

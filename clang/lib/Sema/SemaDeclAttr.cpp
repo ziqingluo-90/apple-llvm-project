@@ -1482,6 +1482,89 @@ static void handleParamsEscapeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
                  ParamsEscapeAttr(S.Context, AL, Idxs.data(), Idxs.size()));
 }
 
+/// Append to \p Indices the indices named by every 'params_escape' on \p D and
+/// its redeclarations.
+static void collectParamsEscape(const Decl *D,
+                                SmallVectorImpl<unsigned> &Indices) {
+  for (const Decl *R : D->redecls())
+    for (const auto *A : R->specific_attrs<ParamsEscapeAttr>())
+      for (const ParamIdx &Idx : A->args())
+        Indices.push_back(Idx.getSourceIndex());
+}
+
+/// Append to \p Indices the indices named by 'params_escape' on every typedef
+/// that \p T uses, looking through sugar, pointers, block pointers and
+/// references.
+static void collectParamsEscape(QualType T, ASTContext &Ctx,
+                                SmallVectorImpl<unsigned> &Indices) {
+  while (!T.isNull()) {
+    if (const auto *TT = dyn_cast<TypedefType>(T.getTypePtr()))
+      collectParamsEscape(TT->getDecl(), Indices);
+    QualType Next = T.getSingleStepDesugaredType(Ctx);
+    if (Next == T) {
+      if (!T->isPointerType() && !T->isBlockPointerType() &&
+          !T->isReferenceType())
+        break;
+      Next = T->getPointeeType();
+    }
+    T = Next;
+  }
+}
+
+/// Return the sorted, deduplicated 'params_escape' indices that apply to \p D
+/// and to the typedefs in its type. If \p D is null, only the typedefs in \p T
+/// are considered.
+static SmallVector<unsigned, 4> getParamsEscapeSet(ASTContext &Ctx,
+                                                   const Decl *D, QualType T) {
+  SmallVector<unsigned, 4> Indices;
+  if (D) {
+    collectParamsEscape(D, Indices);
+    if (const auto *VD = dyn_cast<ValueDecl>(D))
+      T = VD->getType();
+  }
+  collectParamsEscape(T, Ctx, Indices);
+  llvm::sort(Indices);
+  Indices.erase(llvm::unique(Indices), Indices.end());
+  return Indices;
+}
+
+void Sema::checkParamsEscapeAgreement(SourceLocation Loc, const Decl *LHSDecl,
+                                      QualType LHSType, const Expr *RHSExpr) {
+  if (!LHSType->isFunctionPointerType() && !LHSType->isBlockPointerType())
+    return;
+  if (!RHSExpr || RHSExpr->isTypeDependent())
+    return;
+
+  RHSExpr = RHSExpr->IgnoreParenImpCasts();
+  QualType RHSType = RHSExpr->getType();
+  if (!RHSType->isFunctionType() && !RHSType->isFunctionPointerType() &&
+      !RHSType->isBlockPointerType())
+    return;
+  if (const auto *CO = dyn_cast<ConditionalOperator>(RHSExpr)) {
+    checkParamsEscapeAgreement(Loc, LHSDecl, LHSType, CO->getTrueExpr());
+    checkParamsEscapeAgreement(Loc, LHSDecl, LHSType, CO->getFalseExpr());
+    return;
+  }
+
+  const Decl *RHSDecl =
+      const_cast<Expr *>(RHSExpr)->getReferencedDeclOfCallee();
+  if (!RHSDecl)
+    return;
+
+  if (getParamsEscapeSet(Context, LHSDecl, LHSType) !=
+      getParamsEscapeSet(Context, RHSDecl, QualType()))
+    Diag(Loc, diag::warn_params_escape_mismatch) << RHSExpr->getSourceRange();
+}
+
+void Sema::checkParamsEscapeAgreement(const ObjCMethodDecl *NewMethod,
+                                      const ObjCMethodDecl *Overridden) {
+  if (getParamsEscapeSet(Context, NewMethod, QualType()) !=
+      getParamsEscapeSet(Context, Overridden, QualType())) {
+    Diag(NewMethod->getLocation(), diag::warn_params_escape_mismatch);
+    Diag(Overridden->getLocation(), diag::note_previous_decl) << "method";
+  }
+}
+
 static void handleAssumeAlignedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   Expr *E = AL.getArgAsExpr(0),
        *OE = AL.getNumArgs() > 1 ? AL.getArgAsExpr(1) : nullptr;

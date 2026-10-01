@@ -9097,6 +9097,20 @@ public:
   /// (when permitted) if not.
   void checkInitializerLifetime(const InitializedEntity &Entity, Expr *Init);
 
+  /// Warn if \p RHSExpr is stored into a function or block pointer whose
+  /// 'params_escape' indices differ from those of the function or block
+  /// \p RHSExpr refers to. \p LHSDecl is the variable, field or parameter
+  /// stored into (null for a return value), \p LHSType is its type, and nothing
+  /// is checked if \p RHSExpr does not refer to a declaration.
+  void checkParamsEscapeAgreement(SourceLocation Loc, const Decl *LHSDecl,
+                                  QualType LHSType, const Expr *RHSExpr);
+
+  /// Warn if the ObjC method \p NewMethod has different 'params_escape' indices
+  /// than \p Overridden, the method with the same selector that it overrides
+  /// (in a superclass or protocol).
+  void checkParamsEscapeAgreement(const ObjCMethodDecl *NewMethod,
+                                  const ObjCMethodDecl *Overridden);
+
   MaterializeTemporaryExpr *
   CreateMaterializeTemporaryExpr(QualType T, Expr *Temporary,
                                  bool BoundToLvalueReference);

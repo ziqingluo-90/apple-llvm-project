@@ -283,6 +283,7 @@ features cannot lower the translation-unit ABI level;
 - Clang now recognizes the `[[gnu::flag_enum]]` attribute and treats it equivalent to `[[clang::flag_enum]]`
 
 - Added the `[[clang::params_escape(idx, ...)]]` attribute, which lists the pointer or reference parameters of a function that escape.
+  The new `-Wparams-escape-mismatch` warning diagnoses declared function and block pointers whose `params_escape` attributes differ from the function or block they are initialized or assigned from.
 
 ### Improvements to Clang's diagnostics
 

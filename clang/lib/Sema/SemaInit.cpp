@@ -8892,6 +8892,9 @@ ExprResult InitializationSequence::Perform(Sema &S,
   // entity, and if not, either lifetime-extend or warn as appropriate.
   S.checkInitializerLifetime(Entity, Init);
 
+  S.checkParamsEscapeAgreement(Kind.getLocation(), Entity.getDecl(),
+                               Entity.getType(), Init);
+
   // Diagnose non-fatal problems with the completed initialization.
   if (InitializedEntity::EntityKind EK = Entity.getKind();
       (EK == InitializedEntity::EK_Member ||

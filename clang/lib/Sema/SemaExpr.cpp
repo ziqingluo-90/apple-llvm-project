@@ -14798,6 +14798,12 @@ QualType Sema::CheckAssignmentOperands(Expr *LHSExpr, ExprResult &RHS,
     }
 
     if (IsAssignConvertCompatible(ConvTy)) {
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(LHSExpr->IgnoreParens()))
+        checkParamsEscapeAgreement(Loc, DRE->getDecl(), LHSType, RHS.get());
+      else if (const auto *ME = dyn_cast<MemberExpr>(LHSExpr->IgnoreParens()))
+        checkParamsEscapeAgreement(Loc, ME->getMemberDecl(), LHSType,
+                                   RHS.get());
+
       if (LHSType.getObjCLifetime() == Qualifiers::OCL_Strong) {
         // Warn about retain cycles where a block captures the LHS, but
         // not if the LHS is a simple variable into which the block is

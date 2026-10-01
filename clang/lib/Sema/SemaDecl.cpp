@@ -4572,6 +4572,11 @@ bool Sema::MergeCompatibleFunctionDecls(FunctionDecl *New, FunctionDecl *Old,
 
 void Sema::mergeObjCMethodDecls(ObjCMethodDecl *newMethod,
                                 ObjCMethodDecl *oldMethod) {
+  // This must run before the attributes are merged: 'params_escape' is
+  // inherited, so afterwards the two methods always agree.
+  if (!isa<ObjCImplDecl>(newMethod->getDeclContext()))
+    checkParamsEscapeAgreement(newMethod, oldMethod);
+
   // Merge the attributes, including deprecated/unavailable
   AvailabilityMergeKind MergeKind =
       isa<ObjCProtocolDecl>(oldMethod->getDeclContext())

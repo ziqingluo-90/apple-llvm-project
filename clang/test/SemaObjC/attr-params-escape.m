@@ -6,6 +6,6 @@
 @end
 
 void f(void) {
-  void (^b)(int *) = ^(int *p) __attribute__((params_escape(1))) {};
-  void (^c)(int *) __attribute__((params_escape(1))) = b;
+  void (^b)(int *) = ^(int *p) __attribute__((params_escape(1))) {}; // expected-warning {{'params_escape' attributes of the source and the destination do not match}}
+  void (^c)(int *) __attribute__((params_escape(1))) = b; // expected-warning {{'params_escape' attributes of the source and the destination do not match}}
 }
