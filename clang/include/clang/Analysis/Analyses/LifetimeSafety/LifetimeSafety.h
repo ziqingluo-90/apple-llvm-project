@@ -46,6 +46,10 @@ struct LifetimeSafetyOpts {
   bool CheckLifetimeboundViolations;
   bool CheckMisplacedLifetimebound;
   bool CheckInapplicableLifetimebound;
+
+  /// Whether to report, for every parameter, whether inference concluded it
+  /// escapes.
+  bool ReportEscapeInference;
 };
 
 /// Enum to track functions visible across or within TU.

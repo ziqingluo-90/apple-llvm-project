@@ -118,6 +118,8 @@ public:
     //  explicit and inferred findings with separate warning groups.
     if (AST.getLangOpts().EnableLifetimeSafetyInference)
       inferAnnotations();
+    if (LSOpts.ReportEscapeInference)
+      reportEscapeInferenceResults();
   }
 
   /// Checks if an escaping origin holds a placeholder loan, indicating a

@@ -87,6 +87,11 @@ inline bool ShouldSuggestLifetimeAnnotations(Sema &S, const Decl *D) {
   return false;
 }
 
+inline bool ShouldReportEscapeInference(Sema &S, const Decl *D) {
+  return !S.getDiagnostics().isIgnored(
+      diag::remark_lifetime_safety_escape_inferred, D->getBeginLoc());
+}
+
 inline bool IsLifetimeSafetyEnabled(Sema &S, const Decl *D) {
   // TODO: Enable ObjectiveC later when we know it's stable enough.
   if (S.getLangOpts().ObjC)
@@ -114,7 +119,8 @@ inline bool IsLifetimeSafetyEnabled(Sema &S, const Decl *D) {
          ShouldCheckLifetimeboundViolations(S, D) ||
          ShouldCheckMisplacedLifetimebound(S, D) ||
          ShouldCheckInapplicableLifetimebound(S, D) ||
-         ShouldSuggestLifetimeAnnotations(S, D);
+         ShouldSuggestLifetimeAnnotations(S, D) ||
+         ShouldReportEscapeInference(S, D);
 }
 
 inline LifetimeSafetyOpts GetLifetimeSafetyOpts(Sema &S, const Decl *D) {
@@ -127,6 +133,7 @@ inline LifetimeSafetyOpts GetLifetimeSafetyOpts(Sema &S, const Decl *D) {
   LSOpts.CheckMisplacedLifetimebound = ShouldCheckMisplacedLifetimebound(S, D);
   LSOpts.CheckInapplicableLifetimebound =
       ShouldCheckInapplicableLifetimebound(S, D);
+  LSOpts.ReportEscapeInference = ShouldReportEscapeInference(S, D);
   return LSOpts;
 }
 

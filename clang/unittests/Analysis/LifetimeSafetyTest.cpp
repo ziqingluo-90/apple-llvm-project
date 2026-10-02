@@ -74,6 +74,7 @@ public:
     LSOpts.CheckLifetimeboundViolations = true;
     LSOpts.CheckMisplacedLifetimebound = true;
     LSOpts.CheckInapplicableLifetimebound = true;
+    LSOpts.ReportEscapeInference = false;
     Analysis =
         std::make_unique<LifetimeSafetyAnalysis>(*AnalysisCtx, nullptr, LSOpts);
     Analysis->run();
