@@ -24,6 +24,7 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TimeProfiler.h"
 
@@ -60,6 +61,15 @@ private:
   llvm::DenseMap<LoanID, PendingWarning> FinalWarningsMap;
   llvm::DenseMap<AnnotationTarget, EscapingTarget> AnnotationWarningsMap;
   llvm::DenseMap<const ParmVarDecl *, EscapingTarget> NoescapeWarningsMap;
+  // Sound MAY-ESCAPE `AnnotationTarget` set:
+  llvm::DenseSet<AnnotationTarget> MayEscapeEntitySet;
+  struct LoansOfInterestDualStates {
+    // Every level of every parameter's (and this's) own OriginList.
+    llvm::DenseSet<OriginID> OriginsOfInterest;
+    // Origins -> Placeholder loans
+    llvm::DenseMap<OriginID, LoanID> PreState;
+    llvm::DenseMap<OriginID, LoanSet> PostState;
+  } ParmLoansDualState;
   llvm::DenseSet<const Decl *> VerifiedLiftimeboundEscapes;
   const LoanPropagationAnalysis &LoanPropagation;
   const MovedLoansAnalysis &MovedLoans;
@@ -95,14 +105,22 @@ public:
         LiveOrigins(LiveOrigins), FactMgr(FM), SemaHelper(SemaHelper),
         AST(ADC.getASTContext()), Cfg(ADC.getCFG()), FD(ADC.getDecl()),
         LSOpts(LSOpts) {
+    if (LSOpts.ReportEscapeInference)
+      computeOriginsOfInterest();
     for (const CFGBlock *B : *ADC.getAnalysis<PostOrderCFGView>())
-      for (const Fact *F : FactMgr.getFacts(B))
+      for (const Fact *F : FactMgr.getFacts(B)) {
         if (const auto *EF = F->getAs<ExpireFact>())
           checkExpiry(EF);
         else if (const auto *IOF = F->getAs<InvalidateOriginFact>())
           checkInvalidation(IOF);
-        else if (const auto *OEF = F->getAs<OriginEscapesFact>())
+        else if (const auto *OEF = F->getAs<OriginEscapesFact>()) {
           checkAnnotations(OEF);
+          if (LSOpts.ReportEscapeInference)
+            recordMayEscapeEntities(OEF);
+        }
+        if (LSOpts.ReportEscapeInference)
+          recordPlaceholderLoanForOrigin(F);
+      }
     issuePendingWarnings();
     suggestAnnotations();
     if (LSOpts.CheckNoescapeViolations)
@@ -119,7 +137,7 @@ public:
     if (AST.getLangOpts().EnableLifetimeSafetyInference)
       inferAnnotations();
     if (LSOpts.ReportEscapeInference)
-      reportEscapeInferenceResults();
+      emitEscapeInferenceRemarks();
   }
 
   /// Checks if an escaping origin holds a placeholder loan, indicating a
@@ -184,6 +202,131 @@ public:
       else if (const auto *MD = PB->getImplicitThisParent())
         CheckImplicitThis(MD);
     }
+  }
+
+  /// Records a sound MAY-ESCAPE set of entities at the escape sink \p OEF.
+  /// Populates \p MayEscapeEntitySet.
+  void recordMayEscapeEntities(const OriginEscapesFact *OEF) {
+    OriginID EscapedOID = OEF->getEscapedOriginID();
+    LoanSet EscapedLoans = LoanPropagation.getLoans(EscapedOID, OEF);
+    for (LoanID LID : EscapedLoans) {
+      const Loan *L = FactMgr.getLoanMgr().getLoan(LID);
+      const PlaceholderBase *PB = L->getAccessPath().getAsPlaceholderBase();
+      if (!PB)
+        continue;
+      if (const auto *PVD = PB->getParmVarDecl())
+        MayEscapeEntitySet.insert(PVD);
+      else if (const auto *MD = PB->getImplicitThisParent())
+        MayEscapeEntitySet.insert(MD);
+    }
+  }
+
+  /// Invokes \p F with the OriginID of every indirection level of \p List,
+  /// from outermost to innermost.
+  template <typename FnT>
+  static void forEachOriginLevel(OriginList *List, FnT F) {
+    for (OriginList *L = List; L; L = L->peelOuterOrigin())
+      F(L->getOuterOriginID());
+  }
+
+  /// Populates OriginsOfInterest with every level of every parameter's (and
+  /// this's) own OriginList.
+  void computeOriginsOfInterest() {
+    const auto *FDecl = dyn_cast_or_null<FunctionDecl>(FD);
+    if (!FDecl)
+      return;
+    auto AddAllLevels = [&](OriginList *List) {
+      forEachOriginLevel(List, [&](OriginID OID) {
+        ParmLoansDualState.OriginsOfInterest.insert(OID);
+      });
+    };
+    if (auto ThisOrigins = FactMgr.getOriginMgr().getThisOrigins())
+      AddAllLevels(*ThisOrigins);
+    for (const ParmVarDecl *PVD : FDecl->parameters())
+      if (OriginList *List = FactMgr.getOriginMgr().getOrCreateList(PVD))
+        AddAllLevels(List);
+  }
+
+  /// Records F's loan, if F is an IssueFact, into PreState (once, at
+  /// creation). Separately, if F's target origin is one of OriginsOfInterest,
+  /// records its current loans into PostState, overwriting any earlier entry
+  /// for the same origin.
+  void recordPlaceholderLoanForOrigin(const Fact *F) {
+    OriginID OID;
+    if (const auto *IF = F->getAs<IssueFact>()) {
+      OID = IF->getOriginID();
+      ParmLoansDualState.PreState.try_emplace(OID, IF->getLoanID());
+    } else if (const auto *OFF = F->getAs<OriginFlowFact>()) {
+      OID = OFF->getDestOriginID();
+    } else if (const auto *KOF = F->getAs<KillOriginFact>()) {
+      OID = KOF->getKilledOrigin();
+    } else {
+      return;
+    }
+    if (ParmLoansDualState.OriginsOfInterest.contains(OID)) {
+      LoanSet NewLoans = LoanPropagation.getLoans(OID, F);
+      auto Result = ParmLoansDualState.PostState.try_emplace(OID, NewLoans);
+      if (!Result.second)
+        Result.first->second = NewLoans;
+    }
+  }
+
+  /// \return the placeholder loan of the origin representing a parameter or
+  /// 'this'.
+  std::optional<LoanID> getParamLoansAtEntry(OriginID ParmOID) {
+    auto It = ParmLoansDualState.PreState.find(ParmOID);
+    if (It == ParmLoansDualState.PreState.end())
+      return std::nullopt;
+    return It->second;
+  }
+
+  /// \return the loans of the origin representing a parameter or
+  /// 'this' at function exit.
+  LoanSet getParamLoansAtExit(OriginID ParmOID) {
+    if (FactMgr.getPersistentOrigins().test(ParmOID.Value))
+      return LoanPropagation.getLoansAtFunctionExit(ParmOID);
+
+    // Non-persistent: confined to exactly one block, recorded by
+    // recordPlaceholderLoanForOrigin() as it was walked. Look it up instead
+    // of re-scanning the CFG.
+    auto It = ParmLoansDualState.PostState.find(ParmOID);
+    if (It != ParmLoansDualState.PostState.end())
+      return It->second;
+    return LoanSet(nullptr);
+  }
+
+  /// \return true if P's entry loan overlap with the exit loans of any
+  /// reference-typed parameter in \p OtherParams.
+  bool mayCapturedByOtherParams(OriginList *P,
+                                llvm::ArrayRef<ParmVarDecl *> OtherParams) {
+    if (!P)
+      return false;
+
+    // Exit loans, across every indirection level of an OriginList.
+    auto CollectExitLoans = [&](OriginList *List) {
+      llvm::DenseSet<LoanID> Loans;
+      forEachOriginLevel(List, [&](OriginID OID) {
+        for (LoanID LID : getParamLoansAtExit(OID))
+          Loans.insert(LID);
+      });
+      return Loans;
+    };
+    std::optional<LoanID> EntryLoan =
+        getParamLoansAtEntry(P->getOuterOriginID());
+
+    if (!EntryLoan)
+      return false;
+
+    return llvm::any_of(OtherParams, [&](const ParmVarDecl *QDecl) {
+      if (!QDecl->getType()->isReferenceType())
+        return false;
+
+      OriginList *Q = FactMgr.getOriginMgr().getOrCreateList(QDecl);
+
+      if (!Q || Q == P)
+        return false;
+      return CollectExitLoans(Q).contains(*EntryLoan);
+    });
   }
 
   /// Checks for use-after-free & use-after-return errors when an access path
@@ -554,28 +697,35 @@ public:
     }
   }
 
-  /// Reports, for every parameter (and the implicit this) of the analyzed
-  /// function, whether it ended up with a lifetimebound attribute after
-  /// inferAnnotations(), i.e. whether it is inferred to escape.
-  void reportEscapeInferenceResults() {
+  // FIXME: ObjCMethodDecl and BlockDecl are ignored by LSA completely.
+  // FIXME: A pointer nested inside a plain struct/global is
+  // invisible to this whole analysis: OriginManager::hasOrigins never gives
+  // them origins.
+  void emitEscapeInferenceRemarks() {
     if (!SemaHelper)
       return;
     const auto *FDecl = dyn_cast_or_null<FunctionDecl>(FD);
     if (!FDecl)
       return;
-    // inferAnnotations() attaches attributes to the most recent declaration.
-    const FunctionDecl *Merged = getDeclWithMergedLifetimeBoundAttrs(FDecl);
-    for (const ParmVarDecl *PVD : FDecl->parameters()) {
-      const ParmVarDecl *Inferred =
-          Merged->getParamDecl(PVD->getFunctionScopeIndex());
+
+    // The analysis computes `MayEscapeEntitySet`, which excludes the set of
+    // parameters whose original loans MAY be captured by other parameters.
+    // Using `mayCapturedByOtherParams` to patch the hole.
+    for (const ParmVarDecl *PVD : FDecl->parameters())
       SemaHelper->reportParamEscapeInferred(
-          PVD, Inferred->hasAttr<LifetimeBoundAttr>());
-    }
+          PVD, MayEscapeEntitySet.contains(PVD) ||
+                   mayCapturedByOtherParams(
+                       FactMgr.getOriginMgr().getOrCreateList(PVD),
+                       FDecl->parameters()));
     if (const auto *MD = dyn_cast<CXXMethodDecl>(FDecl);
         MD && MD->isImplicitObjectMemberFunction() &&
-        !isa<CXXConstructorDecl, CXXDestructorDecl>(MD))
+        !isa<CXXConstructorDecl, CXXDestructorDecl>(MD)) {
+      auto ThisOrigins = FactMgr.getOriginMgr().getThisOrigins();
       SemaHelper->reportImplicitThisEscapeInferred(
-          MD, implicitObjectParamIsLifetimeBound(MD));
+          MD, MayEscapeEntitySet.contains(MD) ||
+                  (ThisOrigins && mayCapturedByOtherParams(
+                                      *ThisOrigins, FDecl->parameters())));
+    }
   }
 
   /// Extract expressions from the origin flow chain for diagnostic purposes.
