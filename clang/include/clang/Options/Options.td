@@ -2161,6 +2161,16 @@ defm lifetime_infer_test_mode
                             " lifetime safety analysis ignoring existing "
                             "explicit lifetime/escape annotations">>;
 
+defm lifetime_infer_oracle_mode
+    : BoolFOption<"lifetime-infer-oracle-mode",
+                  LangOpts<"LifetimeInferOracleMode">, DefaultFalse,
+                  PosFlag<SetTrue, [], [CC1Option], "Enable">,
+                  NegFlag<SetFalse, [], [CC1Option], "Disable">,
+                  BothFlags<[], [CC1Option],
+                            " reporting source-written noescape annotations "
+                            "as escape inference remarks, in place of the "
+                            "remarks inferred by lifetime safety analysis">>;
+
 defm lifetime_safety_tu_analysis
     : BoolFOption<"experimental-lifetime-safety-tu-analysis",
                   LangOpts<"EnableLifetimeSafetyTUAnalysis">, DefaultFalse,

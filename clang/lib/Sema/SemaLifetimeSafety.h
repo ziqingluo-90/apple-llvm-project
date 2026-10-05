@@ -88,6 +88,9 @@ inline bool ShouldSuggestLifetimeAnnotations(Sema &S, const Decl *D) {
 }
 
 inline bool ShouldReportEscapeInference(Sema &S, const Decl *D) {
+  // In oracle mode the remarks come from source annotations instead.
+  if (S.getLangOpts().LifetimeInferOracleMode)
+    return false;
   return !S.getDiagnostics().isIgnored(
       diag::remark_lifetime_safety_escape_inferred, D->getBeginLoc());
 }

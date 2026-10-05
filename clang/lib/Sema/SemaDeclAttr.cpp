@@ -1450,6 +1450,14 @@ static void handleNoEscapeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   }
 
   D->addAttr(::new (S.Context) NoEscapeAttr(S.Context, AL));
+
+  // In lifetime-infer-oracle-mode, report the annotation in the same remark
+  // format that escape inference uses, for comparison with its results.
+  if (S.getLangOpts().LifetimeInferOracleMode) {
+    const auto *PVD = cast<ParmVarDecl>(D);
+    S.Diag(PVD->getLocation(), diag::remark_lifetime_safety_escape_inferred)
+        << /*IsThis=*/0 << /*Escapes=*/0 << PVD << PVD->getSourceRange();
+  }
 }
 
 /// Validate the indices of 'params_escape' and attach the attribute to \p D.
